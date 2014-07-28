@@ -9,7 +9,7 @@ CFLAGS	= $(DEBUG) -Wall $(INCLUDE) -Winline -pipe
 LDFLAGS	= -L/usr/local/lib
 LDLIBS    = -lwiringPi -lwiringPiDev -lpthread -lm
 
-SRC	=	main.cpp TinyGPS.cpp
+SRC	=	main.cpp TinyGPS.cpp HMC58X3.cpp
 
 OBJ	=	$(SRC:.cpp=.o)
 

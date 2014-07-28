@@ -72,6 +72,12 @@
 #define USE_ULTIMATE_GPS      1
 #define USE_PHAROS_GPS        0
 
+#ifdef USE_ULTIMATE_GPS
+#define GPS_BAUD		  9600
+#else
+#define GPS_BAUD		  4800
+#endif
+
 // GPS Data input Pins will always be the Arduino's own Rx/Tx pins. Disconnect before programming!
 // Had to do this because SoftSerial library is not compatible with Servo library!
 

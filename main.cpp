@@ -6,17 +6,21 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <wiringPi.h>
+#include <wiringSerial.h>
 #include <math.h>
+#include <string.h>
+#include <errno.h>
 #include "includes.h"
 #include "config.h" // defines I/O pins, operational parameters, etc.
 #include "TinyGPS.h"
+#include "HMC58X3.h"
 
 //---------------------------------------------------------------
 // local defines
 
 #define LED_PIN		2
-#define LED_ON	digitalWrite (LED_PIN, HIGH) ;	// On
-#define LED_OFF	digitalWrite (LED_PIN, LOW) ;	// Off
+#define LED_ON		digitalWrite (LED_PIN, HIGH) ;	// On
+#define LED_OFF		digitalWrite (LED_PIN, LOW) ;	// Off
 
 typedef enum
 {
@@ -65,8 +69,12 @@ typedef struct
 E_NAV_STATE geNavState;
 
 // GPS
+int gSerial_fd;
 TinyGPS Gps;
 tGPS_INFO gtGpsData;
+
+// Compass
+HMC58X3 gCompass;
 
 int gTargetWP = 0;
 
@@ -131,6 +139,8 @@ int main(int argc, char **argv)
 //-----------------------------------------------------------------------------------
 void setup()
 {
+	char id_str[5];
+
 	//-----------------------
 	printf("WireingPi ... ");
 	wiringPiSetup();
@@ -167,31 +177,36 @@ void setup()
 	//-----------------------
 	printf("GPS ... ");
 
+	if ((gSerial_fd = serialOpen ("/dev/ttyAMA0", GPS_BAUD)) < 0)
+	{
+		fprintf (stderr, "Unable to open serial device: %s\n", strerror (errno)) ;
+		return;
+	}
+
 	printf("OK\n");
 
 	//-----------------------
-	printf("Compass Calibration ... ");
+	printf("Compass ...\n");
 
     LED_ON;
-/*
-    // no delay needed as we have already a delay(5) in HMC5843::init()
+
+    // Init compass class
     gCompass.init(false); // Dont set mode yet, we'll do that later on. 
+
+	memset( id_str, 0, sizeof(id_str) );
+	gCompass.getID( id_str );
+	printf("Compass ID: %s\n", id_str );
+
     // Calibrate HMC using self test, not recommended to change the gain after calibration.
+	printf("Calibrating ... ");
     gCompass.calibrate(1, 32); // Use gain 1=default, valid 0-7, 7 not recommended.
+
     // Single mode conversion was used in calibration, now set continuous mode
     gCompass.setMode(0);
-*/
+
     LED_OFF;
 
 	printf("OK\n");
-
-    
-    // start Serial for GPS
-#if USE_ULTIMATE_GPS
-
-#else
-
-#endif
      
     // Navigation state machine init
     geNavState = E_NAV_INIT;
@@ -218,27 +233,33 @@ void loop( void )
     float bearing_tolerance;
     static U8 update_counter = 0;  // 100ms x 10 == 1 second update since loop runs about every 100ms
     static S16 gps_delay = 0;
+	static E_NAV_STATE last_NavState = E_NAV_MAX;
     
-      // **********************
-      // Update compass heading
-      // **********************
-      float current_heading;
+	// **********************
+	// Update compass heading
+	// **********************
+	float current_heading;
       
 //      if( gtGpsData.fmph > 3.0 )
 //      {
 //        current_heading = gtGpsData.fcourse;
 //      }
 //      else
-      {    
-        current_heading = GetCompassHeading( MAG_VAR );
-      }
+	{    
+	current_heading = GetCompassHeading( MAG_VAR );
+	}
       
-      printf("%i\n", (U16)current_heading);
+	printf("Heading: %i\n", (U16)current_heading);
 
-      // ******************
-      // Main State Machine
-      // ******************
-      PrintProgramState( geNavState );
+	if( last_NavState != geNavState )
+	{
+		last_NavState = geNavState;
+		PrintProgramState( geNavState );
+	}
+
+	// ******************
+	// Main State Machine
+	// ******************
       switch( geNavState )
       {
       case E_NAV_INIT:
@@ -304,7 +325,7 @@ void loop( void )
           switch( DirectionToBearing( bear_to_waypoint, current_heading, DEGREES_TO_BEARING_TOLERANCE ) )
           {
             case E_GO_LEFT:
-              printf("Go LEFT");
+              printf("Go LEFT\n");
               SetRudder( RUDDER_FULL_LEFT );
               SetSpeed( SPEED_25_PERCENT );
               delay(100);
@@ -312,7 +333,7 @@ void loop( void )
 //              SetSpeed( SPEED_STOP );
               break;
             case E_GO_RIGHT:         
-              printf("Go RIGHT");
+              printf("Go RIGHT\n");
               SetRudder( RUDDER_FULL_RIGHT );
               SetSpeed( SPEED_25_PERCENT );
               delay(100);
@@ -320,17 +341,16 @@ void loop( void )
 //              SetSpeed( SPEED_STOP );
               break;
             case E_GO_STRAIGHT:
-              printf("Go STRAIGHT");
+              printf("Go STRAIGHT\n");
               geNavState = E_NAV_RUN;
               SetRudder( RUDDER_CENTER );
               SetSpeed( SPEED_50_PERCENT );
-/*
+
               // Calculate initial distance to next point
               initial_dist_to_waypoint = Gps.distance_between( gtGpsData.flat, gtGpsData.flon,
     						       gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
               dist_to_waypoint = initial_dist_to_waypoint;
-              printf("Distance to waypoint: "); printf(dist_to_waypoint);
-*/
+              printf("Distance to waypoint: %f\n", dist_to_waypoint);
               break;
           }
           break;
@@ -338,14 +358,12 @@ void loop( void )
       case E_NAV_RUN:
           if( 0 == (update_counter++ % 10) )
           {
-/*
               // Update range and bearing to waypoint
               dist_to_waypoint = Gps.distance_between( gtGpsData.flat, gtGpsData.flon,
     						     gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
     
               bear_to_waypoint = Gps.course_to( gtGpsData.flat, gtGpsData.flon,
               				     gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
-*/
           }
           
           // Is GPS still locked?
@@ -498,13 +516,13 @@ bool UpdateGps( tGPS_INFO *ptGpsInfo )
     // *******************************    
     // Grab GPS data from serial input
     // *******************************
-//    while (Serial.available())
+	while( serialDataAvail(gSerial_fd) )
     {
-        int c;
-//	c = Serial.read();
+        char c;
+		c = serialGetchar(gSerial_fd);
 
 #if DO_GPS_TEST        
-        Serial.printf((char)c);
+        printf("%c", c);
 #endif
         if (Gps.encode(c))
         {
@@ -607,36 +625,38 @@ float GetCompassHeading( float declination )
 //-----------------------------------------------------------------------------------
 void PrintProgramState( E_NAV_STATE eState )
 {
-  printf("State: ");
-  switch( eState )
-  {
-    case E_NAV_INIT:
-      printf("Init");
-      break;
-    case E_NAV_WAIT_FOR_GPS_LOCK:
-      printf("Wait for GPS Lock");
-      break;
-    case E_NAV_WAIT_FOR_GPS_STABLIZE:
-      printf("Wait for GPS to Stabalize");
-      break;
-    case E_NAV_WAIT_FOR_GPS_RELOCK:
-      printf("Wait for GPS Relock");
-      break;
-    case E_NAV_SET_NEXT_WAYPOINT:
-      printf("Set Next Waypoint");
-      break;
-    case E_NAV_START:
-      printf("Start");
-      break;
-    case E_NAV_RUN:
-      printf("Run");
-      break;
-    case E_NAV_STOP:
-      printf("Stop");
-      break;
-    case E_NAV_IDLE:
-      printf("Idle");
-      break;
-  }
+	printf("State: ");
+	switch( eState )
+	{
+	case E_NAV_INIT:
+	  printf("Init");
+	  break;
+	case E_NAV_WAIT_FOR_GPS_LOCK:
+	  printf("Wait for GPS Lock");
+	  break;
+	case E_NAV_WAIT_FOR_GPS_STABLIZE:
+	  printf("Wait for GPS to Stabalize");
+	  break;
+	case E_NAV_WAIT_FOR_GPS_RELOCK:
+	  printf("Wait for GPS Relock");
+	  break;
+	case E_NAV_SET_NEXT_WAYPOINT:
+	  printf("Set Next Waypoint");
+	  break;
+	case E_NAV_START:
+	  printf("Start");
+	  break;
+	case E_NAV_RUN:
+	  printf("Run");
+	  break;
+	case E_NAV_STOP:
+	  printf("Stop");
+	  break;
+	case E_NAV_IDLE:
+	  printf("Idle");
+	  break;
+	}
+	printf("\n");
+	//fflush (stdout);
 }
 

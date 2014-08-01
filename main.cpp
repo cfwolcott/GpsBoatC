@@ -4,6 +4,7 @@
 // **************************************************************
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <wiringPi.h>
 #include <wiringSerial.h>
@@ -14,6 +15,7 @@
 #include "config.h" // defines I/O pins, operational parameters, etc.
 #include "TinyGPS.h"
 #include "HMC58X3.h"
+#include "Arduino.h"
 
 //---------------------------------------------------------------
 // local defines
@@ -54,7 +56,15 @@ typedef struct
     U8 hour;
     U8 minute;
     U8 second;
+	bool bGpsLocked;
 } tGPS_INFO;
+
+typedef struct
+{
+	float dist_to_waypoint;
+	float bear_to_waypoint;
+	float current_heading;
+} tNAV_INFO;
 
 typedef struct
 {
@@ -70,11 +80,17 @@ E_NAV_STATE geNavState;
 
 // GPS
 int gSerial_fd;
-TinyGPS Gps;
-tGPS_INFO gtGpsData;
+TinyGPS cGps;
+tGPS_INFO gtGpsInfo;
 
 // Compass
-HMC58X3 gCompass;
+HMC58X3 cCompass;
+
+// Arduino on I2C bus
+Arduino cArduino;
+
+// Navigation Info
+tNAV_INFO gtNavInfo;
 
 int gTargetWP = 0;
 
@@ -98,7 +114,7 @@ tWAY_POINT gtWayPoint[] = {
 };
 
 
-//---------------------------------------------------------------
+//---------------------------------------------------------------  
 // local function prototypes
 
 bool 	UpdateGps( tGPS_INFO *ptGpsInfo );
@@ -115,6 +131,7 @@ void	loop( void );
 //---------------------------------------------------------------
 int main(int argc, char **argv)
 {
+	system("clear");
 	printf("GpsBoat - Version 1.0\n\n");
 
 	//-----------------------
@@ -122,6 +139,8 @@ int main(int argc, char **argv)
 	//-----------------------
 	printf("Setting up hardware:\n");
 	setup();
+
+	delay(5000);
  
 	//-----------------------
 	// Main Loop
@@ -130,7 +149,19 @@ int main(int argc, char **argv)
 	while(1)
 	{
 		loop();
-	    delay( 100 );
+
+		// Print system status
+		system("clear");
+		printf("Status: "); PrintProgramState( geNavState ); printf("\n");
+		printf("Navigation Info:\n");
+		printf("Bearing to Target: %i\n", gtNavInfo.bear_to_waypoint);
+		printf("Distance to Target: %f meters\n", gtNavInfo.dist_to_waypoint);
+		printf("Heading: %i\n", (U16)gtNavInfo.current_heading);
+		printf("\n");
+		printf("GPS Locked: %i\n", gtGpsInfo.bGpsLocked);
+		printf("GPS Lat: %f    Long: %f\n", gtGpsInfo.flat, gtGpsInfo.flon);
+
+	    delay( 200 );
 	}
 
 	return 0;
@@ -154,33 +185,44 @@ void setup()
 	printf("OK\n");
 
 	//-----------------------
-	printf("Arduino ... ");
+	printf("Arduino ...\n");
+
+	cArduino.Init( ARDUINO_I2C_ADDR );
+
+	printf("\tArduino version: 0x%X\n", cArduino.GetReg( ARDUINO_REG_VERSION ) );
 
     // Init servos
-/*    gEscServo.attach( SERVO_ESC_PIN );
-    gEscServo.write( SPEED_STOP );
-    
-    gRudderServo.attach( SERVO_RUDDER_PIN );
-    gRudderServo.write( RUDDER_CENTER );
-    
+	printf("Servo Test:\n");
+	cArduino.SetReg( ARDUINO_REG_EXTRA_LED, 1 );
+
+	printf("Left ... ");
     SetRudder( RUDDER_FULL_LEFT );
     delay(1000);
+	printf("Center ... ");
     SetRudder( RUDDER_CENTER );
     delay(1000);
+	printf("Right ... ");
     SetRudder( RUDDER_FULL_RIGHT );
     delay(1000);
+	printf("Center ...\n");
     SetRudder( RUDDER_CENTER );
     delay(1000);
-*/
+
+	cArduino.SetReg( ARDUINO_REG_EXTRA_LED, 0 );
+
 	printf("OK\n");
 
 	//-----------------------
-	printf("GPS ... ");
+	printf("GPS ...\n");
 
 	if ((gSerial_fd = serialOpen ("/dev/ttyAMA0", GPS_BAUD)) < 0)
 	{
-		fprintf (stderr, "Unable to open serial device: %s\n", strerror (errno)) ;
+		fprintf (stderr, "\tUnable to open serial device: %s\n", strerror (errno)) ;
 		return;
+	}
+	else
+	{
+		printf("\tComm port to GPS opened. GPS Baud: %i\n", GPS_BAUD);
 	}
 
 	printf("OK\n");
@@ -189,20 +231,30 @@ void setup()
 	printf("Compass ...\n");
 
     LED_ON;
-
+/*
     // Init compass class
-    gCompass.init(false); // Dont set mode yet, we'll do that later on. 
+    cCompass.init(false); // Dont set mode yet, we'll do that later on. 
 
 	memset( id_str, 0, sizeof(id_str) );
-	gCompass.getID( id_str );
+	cCompass.getID( id_str );
 	printf("Compass ID: %s\n", id_str );
 
     // Calibrate HMC using self test, not recommended to change the gain after calibration.
 	printf("Calibrating ... ");
-    gCompass.calibrate(1, 32); // Use gain 1=default, valid 0-7, 7 not recommended.
-
+	{
+		int i;
+		for(i=1; i<2; i++)
+		{
+			printf("\nCaling with %i\n", i);
+    		if(cCompass.calibrate(i, 32)) // Use gain 1=default, valid 0-7, 7 not recommended.
+			{
+				break;
+			}
+		}
+	}
+*/
     // Single mode conversion was used in calibration, now set continuous mode
-    gCompass.setMode(0);
+    cCompass.setMode(0);
 
     LED_OFF;
 
@@ -219,17 +271,14 @@ void loop( void )
     LED_ON;
     
     // **********************
-    // Update Gps Data/Status
+    // Update cGps Data/Status
     // **********************
-    bool bGpsLocked;
-    bGpsLocked = UpdateGps( &gtGpsData );
+    gtGpsInfo.bGpsLocked = UpdateGps( &gtGpsInfo );
     
     // **********************************
     // Navigation State Machine variables
     // **********************************
-    static float dist_to_waypoint;
     static float initial_dist_to_waypoint;
-    static float bear_to_waypoint;
     float bearing_tolerance;
     static U8 update_counter = 0;  // 100ms x 10 == 1 second update since loop runs about every 100ms
     static S16 gps_delay = 0;
@@ -238,19 +287,16 @@ void loop( void )
 	// **********************
 	// Update compass heading
 	// **********************
-	float current_heading;
       
-//      if( gtGpsData.fmph > 3.0 )
+//      if( gtGpsInfo.fmph > 3.0 )
 //      {
-//        current_heading = gtGpsData.fcourse;
+//        current_heading = gtGpsInfo.fcourse;
 //      }
 //      else
 	{    
-	current_heading = GetCompassHeading( MAG_VAR );
+		gtNavInfo.current_heading = GetCompassHeading( MAG_VAR );
 	}
       
-	printf("Heading: %i\n", (U16)current_heading);
-
 	if( last_NavState != geNavState )
 	{
 		last_NavState = geNavState;
@@ -271,7 +317,7 @@ void loop( void )
           break;
           
       case E_NAV_WAIT_FOR_GPS_LOCK:
-          if( bGpsLocked )
+          if( gtGpsInfo.bGpsLocked )
           {          
               gps_delay = GPS_STABALIZE_LOCK_TIME;
               geNavState = E_NAV_WAIT_FOR_GPS_STABLIZE;
@@ -288,8 +334,8 @@ void loop( void )
           {
 #if !USE_HOME_POSITION
               // Save current GPS location as the "Home" waypoint
-              gtWayPoint[0].flat = gtGpsData.flat;
-              gtWayPoint[0].flon = gtGpsData.flon;
+              gtWayPoint[0].flat = gtGpsInfo.flat;
+              gtWayPoint[0].flon = gtGpsInfo.flon;
 #endif
 #if DO_GPS_TEST
               geNavState = E_NAV_IDLE;
@@ -304,15 +350,15 @@ void loop( void )
           gTargetWP = gTargetWP % NUM_WAY_POINTS;
           
           // Calculate inital bearing to waypoint
-          bear_to_waypoint = Gps.course_to( gtGpsData.flat, gtGpsData.flon,
+          gtNavInfo.bear_to_waypoint = cGps.course_to( gtGpsInfo.flat, gtGpsInfo.flon,
           				    gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
-          printf("Bearing to waypoint: %i\n", bear_to_waypoint);
+          printf("Bearing to waypoint: %i\n", gtNavInfo.bear_to_waypoint);
           geNavState = E_NAV_START;
           break;
           
       case E_NAV_WAIT_FOR_GPS_RELOCK:
-          // Resume navigation if the Gps obtains a lock again
-          if( bGpsLocked )
+          // Resume navigation if the cGps obtains a lock again
+          if( gtGpsInfo.bGpsLocked )
           {          
               geNavState = E_NAV_START;
           }
@@ -322,7 +368,7 @@ void loop( void )
           // Use motors, rudder and compass to turn towards new waypoint
           
           // Which way to turn?
-          switch( DirectionToBearing( bear_to_waypoint, current_heading, DEGREES_TO_BEARING_TOLERANCE ) )
+          switch( DirectionToBearing( gtNavInfo.bear_to_waypoint, gtNavInfo.current_heading, DEGREES_TO_BEARING_TOLERANCE ) )
           {
             case E_GO_LEFT:
               printf("Go LEFT\n");
@@ -347,10 +393,10 @@ void loop( void )
               SetSpeed( SPEED_50_PERCENT );
 
               // Calculate initial distance to next point
-              initial_dist_to_waypoint = Gps.distance_between( gtGpsData.flat, gtGpsData.flon,
+              initial_dist_to_waypoint = cGps.distance_between( gtGpsInfo.flat, gtGpsInfo.flon,
     						       gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
-              dist_to_waypoint = initial_dist_to_waypoint;
-              printf("Distance to waypoint: %f\n", dist_to_waypoint);
+              gtNavInfo.dist_to_waypoint = initial_dist_to_waypoint;
+              printf("Distance to waypoint: %f\n", gtNavInfo.dist_to_waypoint);
               break;
           }
           break;
@@ -359,22 +405,22 @@ void loop( void )
           if( 0 == (update_counter++ % 10) )
           {
               // Update range and bearing to waypoint
-              dist_to_waypoint = Gps.distance_between( gtGpsData.flat, gtGpsData.flon,
+              gtNavInfo.dist_to_waypoint = cGps.distance_between( gtGpsInfo.flat, gtGpsInfo.flon,
     						     gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
     
-              bear_to_waypoint = Gps.course_to( gtGpsData.flat, gtGpsData.flon,
+              gtNavInfo.bear_to_waypoint = cGps.course_to( gtGpsInfo.flat, gtGpsInfo.flon,
               				     gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
           }
           
           // Is GPS still locked?
-          if( false == bGpsLocked )
+          if( false == gtGpsInfo.bGpsLocked )
           {            
               geNavState = E_NAV_STOP;
               break;   
           }
           
           // Adjust bearing to target tolerance for more refined direction pointing
-          if( dist_to_waypoint <= (initial_dist_to_waypoint * 0.10) )
+          if( gtNavInfo.dist_to_waypoint <= (initial_dist_to_waypoint * 0.10) )
           {
             bearing_tolerance = DEGREES_TO_BEARING_TOLERANCE * 0.5;
           }
@@ -384,7 +430,7 @@ void loop( void )
           }
                    
           // Correct track to waypoint (if needed)
-          switch( DirectionToBearing( bear_to_waypoint, current_heading, bearing_tolerance ) )
+          switch( DirectionToBearing( gtNavInfo.bear_to_waypoint, gtNavInfo.current_heading, bearing_tolerance ) )
           {
             case E_GO_LEFT:           
               SetRudder( RUDDER_LEFT );
@@ -399,7 +445,7 @@ void loop( void )
           }
           
           // Are we there yet?
-          if( dist_to_waypoint <= SWITCH_WAYPOINT_DISTANCE )
+          if( gtNavInfo.dist_to_waypoint <= SWITCH_WAYPOINT_DISTANCE )
           {
               SetSpeed( SPEED_STOP );
               geNavState = E_NAV_SET_NEXT_WAYPOINT;
@@ -410,7 +456,7 @@ void loop( void )
           // Stop navigation and wait to resume
           SetSpeed( SPEED_STOP );
           
-          if( false == bGpsLocked )
+          if( false == gtGpsInfo.bGpsLocked )
           {
               geNavState = E_NAV_WAIT_FOR_GPS_RELOCK;
               break;   
@@ -438,6 +484,8 @@ void SetSpeed( int new_setting )
 {
   int last_setting;
   int step_and_dir;
+
+	cArduino.SetReg( ARDUINO_REG_ESC, new_setting);
   
 /*
   
@@ -471,15 +519,15 @@ void SetSpeed( int new_setting )
 // Assums Right == Higher setting, Left == Lower setting
 void SetRudder( int new_setting )
 {
-  int last_setting;
-  int step_and_dir;
+	int last_setting;
+	int step_and_dir;
   
 #if RUDDER_REVERSE
-  new_setting = 180 - new_setting;
+	new_setting = 180 - new_setting;
 #endif
 
-//  gRudderServo.write(new_setting);
-  return;
+	cArduino.SetReg( ARDUINO_REG_STEERING, new_setting);
+	return;
 /*  
   // Get the last value written to the servo
   last_setting = gRudderServo.read();
@@ -504,7 +552,7 @@ void SetRudder( int new_setting )
 }
 
 //-----------------------------------------------------------------------------------
-// Returns valid Gps data if GPS has a Fix
+// Returns valid cGps data if GPS has a Fix
 bool UpdateGps( tGPS_INFO *ptGpsInfo )
 {
     static bool bLocked = false;
@@ -523,21 +571,22 @@ bool UpdateGps( tGPS_INFO *ptGpsInfo )
 
 #if DO_GPS_TEST        
         printf("%c", c);
+		fflush( stdout );
 #endif
-        if (Gps.encode(c))
+        if (cGps.encode(c))
         {
             bNewGpsData = true;
         }
     }
     
     // ********************
-    // Process new Gps info
+    // Process new cGps info
     // ********************
     if( bNewGpsData )
     {        
         // GPS Position
         // retrieves +/- lat/long in 100000ths of a degree
-        Gps.f_get_position( &ptGpsInfo->flat, &ptGpsInfo->flon, &fix_age);
+        cGps.f_get_position( &ptGpsInfo->flat, &ptGpsInfo->flon, &fix_age);
         if (fix_age == TinyGPS::GPS_INVALID_AGE)
         {
             bLocked = false;
@@ -549,13 +598,13 @@ bool UpdateGps( tGPS_INFO *ptGpsInfo )
             
 #if USE_GPS_TIME_INFO
         // GPS Time
-        Gps.crack_datetime(&year, &month, &day, &ptGpsInfo->hour, &ptGpsInfo->minute, &ptGpsInfo->second, &hundredths, &fix_age);
+        cGps.crack_datetime(&year, &month, &day, &ptGpsInfo->hour, &ptGpsInfo->minute, &ptGpsInfo->second, &hundredths, &fix_age);
 #endif // USE_GPS_TIME_INFO
 
         // GPS Speed
-        ptGpsInfo->fmph = Gps.f_speed_mph(); // speed in miles/hr
+        ptGpsInfo->fmph = cGps.f_speed_mph(); // speed in miles/hr
         // course in 100ths of a degree
-        ptGpsInfo->fcourse = Gps.f_course();
+        ptGpsInfo->fcourse = cGps.f_course();
     }
     
     return bLocked;
@@ -596,7 +645,7 @@ float GetCompassHeading( float declination )
     // Calculate heading when the magnetometer is level, then correctfor signs of axis. 
     float mag_x, mag_y, mag_z;
     
-//    gCompass.getValues( &mag_x, &mag_y, &mag_z );
+    cCompass.getValues( &mag_x, &mag_y, &mag_z );
     
     float heading = atan2( mag_y, mag_x );
 

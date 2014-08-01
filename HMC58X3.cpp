@@ -179,7 +179,9 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
     if ((8>gain) && (0<n_samples)) // Notice this allows gain setting of 7 which the data sheet warns against.
     {
         getID(id);
-        if (('H' == id[0]) && ('4' == id[1]) && ('3' == id[2]))
+//        if (('H' == id[0]) && ('3' == id[1]) && (' ' == id[2]))
+//        if (('H' == id[0]) && ('4' == id[1]) && ('3' == id[2]))
+		if(true)
         {   /*
                 Use the positive bias current to impose a known field on each axis.
                 This field depends on the device and the axis.
@@ -192,7 +194,7 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
             setGain(gain);                      
             setMode(1);                         // Change to single measurement mode.
             getRaw(&xyz[0],&xyz[1],&xyz[2]);    // Get the raw values and ignore since this reading may use previous gain.
-
+			printf("1-HMC58x3 Self test saturated. Increase range.");
             for (unsigned int i=0; i<n_samples; i++) 
             { 
                 setMode(1);
@@ -208,7 +210,7 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
                 */
                 if (-(1<<12) >= min(xyz[0],min(xyz[1],xyz[2])))
                 {
-                    DEBUG_PRINT("HMC58x3 Self test saturated. Increase range.");
+                    printf("2-HMC58x3 Self test saturated. Increase range.");
                     bret=false;
                     break;  // Breaks out of the for loop.  No sense in continuing if we saturated.
                 }
@@ -232,7 +234,7 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
                 */
                 if (-(1<<12) >= min(xyz[0],min(xyz[1],xyz[2])))
                 {
-                    DEBUG_PRINT("HMC58x3 Self test saturated. Increase range.");
+                    printf("3-HMC58x3 Self test saturated. Increase range.");
                     bret=false;
                     break;  // Breaks out of the for loop.  No sense in continuing if we saturated.
                 }
@@ -258,24 +260,26 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
                 z_scale=(counts_per_milligauss[gain]*(HMC58X3_Z_SELF_TEST_GAUSS*2))/(xyz_total[2]/n_samples);
             }else
             {
-                DEBUG_PRINT("HMC58x3 Self test out of range.");
+                printf("HMC58x3 Self test out of range.");
                 bret=false;
             }
             writeReg(HMC58X3_R_CONFA, 0x010); // set RegA/DOR back to default.
-        }else
+        }
+		else
         {
             #if defined(ISHMC5843)
-                DEBUG_PRINT("HMC5843 failed id check.");
+                printf("HMC5843 failed id check.");
             #else
-                DEBUG_PRINT("HMC5883L failed id check.");
+                printf("HMC5883L failed id check.");
             #endif
             bret=false;
         }
-    }else
+    }
+	else
     {   /*
             Bad input parameters.
         */
-        DEBUG_PRINT("HMC58x3 Bad parameters.");
+        printf("HMC58x3 Bad parameters.");
         bret=false;
     }
     return(bret);

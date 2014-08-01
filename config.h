@@ -69,24 +69,25 @@
 
 #define DO_GPS_TEST           0
 
-#define USE_ULTIMATE_GPS      1
-#define USE_PHAROS_GPS        0
+#define USE_ULTIMATE_GPS      0
+#define USE_PHAROS_GPS        1
 
-#ifdef USE_ULTIMATE_GPS
-#define GPS_BAUD		  9600
+#if USE_ULTIMATE_GPS
+#define GPS_BAUD		  		9600
 #else
-#define GPS_BAUD		  4800
+#define GPS_BAUD		 		4800
 #endif
+
+#define ARDUINO_I2C_ADDR		(0x04)
 
 // GPS Data input Pins will always be the Arduino's own Rx/Tx pins. Disconnect before programming!
 // Had to do this because SoftSerial library is not compatible with Servo library!
 
 // How many seconds to wait after GPS locks before starting navigation
-#define GPS_STABALIZE_LOCK_TIME    20    // seconds
+#define GPS_STABALIZE_LOCK_TIME    1    // seconds
 
 // *******************************************************************
 // ESC "servo"
-#define SERVO_ESC_PIN     11
 
 // These define the throttle channel settings. They are represented by a a number in the range 0 - 180 which are in degrees of shaft movement.
 #define SPEED_BACKUP       180
@@ -100,8 +101,6 @@
 #define SPEED_STEP_DELAY   200  // milliseconds between each new step size
 
 // Rudder Servo
-#define SERVO_RUDDER_PIN   10
-
 #define RUDDER_CENTER      75
 #define RUDDER_FULL_LEFT   35
 #define RUDDER_LEFT        RUDDER_FULL_LEFT

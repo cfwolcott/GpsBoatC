@@ -22,5 +22,8 @@ all: $(OBJ)
 #	gcc -o $@ $^ $(LDFLAGS) $(LDLIBS)
 	gcc -o gpsboat $^ $(LDFLAGS) $(LDLIBS)
 
+test:
+	gcc -o test test.cpp HMC58X3.cpp $(LDFLAGS) $(LDLIBS)
+
 clean:
 	rm -f *.o

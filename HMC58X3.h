@@ -97,6 +97,7 @@ class HMC58X3
     void setMode(unsigned char mode);
     void setDOR(unsigned char DOR);
     void setGain(unsigned char gain);
+	int  signExtened(int value);
     void getID(char id[3]);
   private:
     void writeReg(unsigned char reg, unsigned char val);

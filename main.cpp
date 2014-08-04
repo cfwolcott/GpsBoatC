@@ -231,7 +231,7 @@ void setup()
 	printf("Compass ...\n");
 
     LED_ON;
-/*
+
     // Init compass class
     cCompass.init(false); // Dont set mode yet, we'll do that later on. 
 
@@ -252,7 +252,7 @@ void setup()
 			}
 		}
 	}
-*/
+
     // Single mode conversion was used in calibration, now set continuous mode
     cCompass.setMode(0);
 
@@ -352,7 +352,10 @@ void loop( void )
           // Calculate inital bearing to waypoint
           gtNavInfo.bear_to_waypoint = cGps.course_to( gtGpsInfo.flat, gtGpsInfo.flon,
           				    gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
-          printf("Bearing to waypoint: %i\n", gtNavInfo.bear_to_waypoint);
+
+		  gtNavInfo.dist_to_waypoint = cGps.distance_between( gtGpsInfo.flat, gtGpsInfo.flon,
+   						    gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
+
           geNavState = E_NAV_START;
           break;
           

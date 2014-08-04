@@ -168,7 +168,7 @@ void HMC58X3::calibrate(unsigned char gain)
 bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples) 
 {
     int xyz[3];                     // 16 bit integer values for each axis.
-    long int xyz_total[3]={0,0,0};  // 32 bit totals so they won't overflow.
+    long int xyz_total[3] = {0,0,0};  // 32 bit totals so they won't overflow.
     bool bret=true;                 // Function return value.  Will return false if the wrong identifier is returned, saturation is detected or response is out of range to self test bias.
     char id[3];                     // Three identification registers should return 'H43'.
     long int low_limit, high_limit;                                    
@@ -179,9 +179,7 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
     if ((8>gain) && (0<n_samples)) // Notice this allows gain setting of 7 which the data sheet warns against.
     {
         getID(id);
-//        if (('H' == id[0]) && ('3' == id[1]) && (' ' == id[2]))
-//        if (('H' == id[0]) && ('4' == id[1]) && ('3' == id[2]))
-		if(true)
+        if (('H' == id[0]) && ('4' == id[1]) && ('3' == id[2]))
         {   /*
                 Use the positive bias current to impose a known field on each axis.
                 This field depends on the device and the axis.
@@ -194,7 +192,7 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
             setGain(gain);                      
             setMode(1);                         // Change to single measurement mode.
             getRaw(&xyz[0],&xyz[1],&xyz[2]);    // Get the raw values and ignore since this reading may use previous gain.
-			printf("1-HMC58x3 Self test saturated. Increase range.");
+
             for (unsigned int i=0; i<n_samples; i++) 
             { 
                 setMode(1);
@@ -210,8 +208,8 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
                 */
                 if (-(1<<12) >= min(xyz[0],min(xyz[1],xyz[2])))
                 {
-                    printf("2-HMC58x3 Self test saturated. Increase range.");
-                    bret=false;
+                    printf("HMC58x3 Self test saturated. Increase range.\n");
+                    bret = false;
                     break;  // Breaks out of the for loop.  No sense in continuing if we saturated.
                 }
             }
@@ -219,6 +217,7 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
                 Apply the negative bias. (Same gain)
             */
             writeReg(HMC58X3_R_CONFA, 0x010 + HMC_NEG_BIAS); // Reg A DOR=0x010 + MS1,MS0 set to negative bias.
+
             for (unsigned int i=0; i<n_samples; i++) 
             { 
                 setMode(1);
@@ -226,16 +225,16 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
                 /*
                     Since the measurements are noisy, they should be averaged.
                 */
-                xyz_total[0]-=xyz[0];
-                xyz_total[1]-=xyz[1];
-                xyz_total[2]-=xyz[2];
+                xyz_total[0] -= xyz[0];
+                xyz_total[1] -= xyz[1];
+                xyz_total[2] -= xyz[2];
                 /*
                     Detect saturation.
                 */
                 if (-(1<<12) >= min(xyz[0],min(xyz[1],xyz[2])))
                 {
-                    printf("3-HMC58x3 Self test saturated. Increase range.");
-                    bret=false;
+                    printf("HMC58x3 Self test saturated. Increase range.\n");
+                    bret = false;
                     break;  // Breaks out of the for loop.  No sense in continuing if we saturated.
                 }
             }
@@ -243,10 +242,10 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
                 Compare the values against the expected self test bias gauss.
                 Notice, the same limits are applied to all axis.
             */
-            low_limit =SELF_TEST_LOW_LIMIT *counts_per_milligauss[gain]*2*n_samples;
-            high_limit=SELF_TEST_HIGH_LIMIT*counts_per_milligauss[gain]*2*n_samples;
+            low_limit = SELF_TEST_LOW_LIMIT * counts_per_milligauss[gain]*2*n_samples;
+            high_limit = SELF_TEST_HIGH_LIMIT * counts_per_milligauss[gain]*2*n_samples;
 
-            if ((true==bret) && 
+            if((true == bret) && 
                 (low_limit <= xyz_total[0]) && (high_limit >= xyz_total[0]) &&
                 (low_limit <= xyz_total[1]) && (high_limit >= xyz_total[1]) &&
                 (low_limit <= xyz_total[2]) && (high_limit >= xyz_total[2]) )
@@ -255,32 +254,33 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
                     Normalize the scale factors so all axis return the same range of values for the bias field.
                     Factor of 2 is from summation of total of n_samples from both positive and negative bias.
                 */
-                x_scale=(counts_per_milligauss[gain]*(HMC58X3_X_SELF_TEST_GAUSS*2))/(xyz_total[0]/n_samples);
-                y_scale=(counts_per_milligauss[gain]*(HMC58X3_Y_SELF_TEST_GAUSS*2))/(xyz_total[1]/n_samples);
-                z_scale=(counts_per_milligauss[gain]*(HMC58X3_Z_SELF_TEST_GAUSS*2))/(xyz_total[2]/n_samples);
-            }else
+                x_scale = (counts_per_milligauss[gain]*(HMC58X3_X_SELF_TEST_GAUSS*2)) / (xyz_total[0]/n_samples);
+                y_scale = (counts_per_milligauss[gain]*(HMC58X3_Y_SELF_TEST_GAUSS*2)) / (xyz_total[1]/n_samples);
+                z_scale = (counts_per_milligauss[gain]*(HMC58X3_Z_SELF_TEST_GAUSS*2)) / (xyz_total[2]/n_samples);
+            }
+			else
             {
-                printf("HMC58x3 Self test out of range.");
-                bret=false;
+                printf("HMC58x3 Self test out of range.\n");
+                bret = false;
             }
             writeReg(HMC58X3_R_CONFA, 0x010); // set RegA/DOR back to default.
         }
 		else
         {
             #if defined(ISHMC5843)
-                printf("HMC5843 failed id check.");
+                printf("HMC5843 failed id check.\n");
             #else
-                printf("HMC5883L failed id check.");
+                printf("HMC5883L failed id check.\n");
             #endif
-            bret=false;
+            bret = false;
         }
     }
 	else
     {   /*
             Bad input parameters.
         */
-        printf("HMC58x3 Bad parameters.");
-        bret=false;
+        printf("HMC58x3 Bad parameters.\n");
+        bret = false;
     }
     return(bret);
 }   //  calibrate().
@@ -288,13 +288,15 @@ bool HMC58X3::calibrate(unsigned char gain,unsigned int n_samples)
 //------------------------------------------------------------------------------
 // set data output rate
 // 0-6, 4 default, normal operation assumed
-void HMC58X3::setDOR(unsigned char DOR) {
+void HMC58X3::setDOR(unsigned char DOR) 
+{
   if (DOR>6) return;
-  writeReg(HMC58X3_R_CONFA,DOR<<2);
+  writeReg(HMC58X3_R_CONFA, DOR<<2);
 }
 
 //------------------------------------------------------------------------------
-void HMC58X3::setGain(unsigned char gain) { 
+void HMC58X3::setGain(unsigned char gain) 
+{ 
   // 0-7, 1 default
   if (gain > 7) return;
   writeReg(HMC58X3_R_CONFB, gain << 5);
@@ -303,7 +305,7 @@ void HMC58X3::setGain(unsigned char gain) {
 //------------------------------------------------------------------------------
 void HMC58X3::writeReg(unsigned char reg, unsigned char val) 
 {
-	wiringPiI2CWriteReg8( i2c_fd, (int)reg, (int)val );
+	wiringPiI2CWriteReg8( i2c_fd, reg, val );
 }
 
 //------------------------------------------------------------------------------
@@ -325,6 +327,10 @@ void HMC58X3::getValues(float *x,float *y,float *z)
 
 	getRaw(&xr, &yr, &zr);
 
+	xr = signExtened( xr );
+	yr = signExtened( yr );
+	zr = signExtened( zr );
+
 	*x= ((float) xr) / x_scale;
 	*y = ((float) yr) / y_scale;
 	*z = ((float) zr) / z_scale;
@@ -333,28 +339,49 @@ void HMC58X3::getValues(float *x,float *y,float *z)
 //------------------------------------------------------------------------------
 void HMC58X3::getRaw(int *x,int *y,int *z) 
 {	
-	// will start from DATA X MSB and fetch all the others
-	int result = wiringPiI2CWrite( i2c_fd, HMC58X3_R_XM );
+	int data = 0;
 
-	if( result >= 0 ) 
-	{
-		// read out the 3 values, 2 bytes each.
-		*x = (wiringPiI2CRead( i2c_fd ) << 8) | wiringPiI2CRead( i2c_fd );
-#ifdef ISHMC5843
-		*y = (wiringPiI2CRead( i2c_fd ) << 8) | wiringPiI2CRead( i2c_fd );
-		*z = (wiringPiI2CRead( i2c_fd ) << 8) | wiringPiI2CRead( i2c_fd );
-#else // the Z registers comes before the Y registers in the HMC5883L
-		*z = (wiringPiI2CRead( i2c_fd ) << 8) | wiringPiI2CRead( i2c_fd );
-		*y = (wiringPiI2CRead( i2c_fd ) << 8) | wiringPiI2CRead( i2c_fd );
-#endif
-		// the HMC58X3 will automatically wrap around on the next request
-	}
+	// will start from DATA X MSB and fetch all the others
+
+	// read out the 3 values, 2 bytes each.
+	// x
+	data = wiringPiI2CReadReg8( i2c_fd, HMC58X3_R_XM ) << 8;
+	data |= wiringPiI2CReadReg8( i2c_fd, HMC58X3_R_XL );
+	*x = data;
+
+	// y
+	data = wiringPiI2CReadReg8( i2c_fd, HMC58X3_R_YM ) << 8;
+	data |= wiringPiI2CReadReg8( i2c_fd, HMC58X3_R_YL );
+	*y = data;
+
+	// z
+	data = wiringPiI2CReadReg8( i2c_fd, HMC58X3_R_ZM ) << 8;
+	data |= wiringPiI2CReadReg8( i2c_fd, HMC58X3_R_ZL );
+	*z = data;
 }
 
 //------------------------------------------------------------------------------
 void HMC58X3::getValues(float *xyz)
 {
 	getValues(&xyz[0], &xyz[1], &xyz[2]);
+}
+
+//------------------------------------------------------------------------------
+//
+// signExtened 
+//	sign-extends the 16-bit value from the compass to the RPi's 32-bit int size
+//
+int HMC58X3::signExtened(int value) 
+{
+    int new_value = (0x0000FFFF & value );
+    int mask = 0x00008000;
+
+    if( mask & value )
+	{
+        new_value += 0xFFFF0000;
+    }
+
+    return new_value;
 }
 
 //------------------------------------------------------------------------------
@@ -368,19 +395,8 @@ void HMC58X3::getValues(float *xyz)
 void HMC58X3::getID(char id[3]) 
 {
 	// Will start reading registers starting from Identification Register A.
-	int result = wiringPiI2CWrite( i2c_fd, HMC58X3_R_IDA );
-
-	if( result >= 0 ) 
-	{
-		id[0] = wiringPiI2CRead( i2c_fd );
-		id[1] = wiringPiI2CRead( i2c_fd );
-		id[2] = wiringPiI2CRead( i2c_fd );
-	}
-	else
-	{
-		id[0] = 0;  
-		id[1] = 0;
-		id[2] = 0;
-	}
+	id[0] = wiringPiI2CReadReg8( i2c_fd, HMC58X3_R_IDA );
+	id[1] = wiringPiI2CReadReg8( i2c_fd, HMC58X3_R_IDB );
+	id[2] = wiringPiI2CReadReg8( i2c_fd, HMC58X3_R_IDC );
 }   // getID().
 

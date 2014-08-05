@@ -15,6 +15,7 @@
 #include "config.h" // defines I/O pins, operational parameters, etc.
 #include "TinyGPS.h"
 #include "HMC58X3.h"
+#include "ADXL345.h"
 #include "Arduino.h"
 
 //---------------------------------------------------------------
@@ -86,6 +87,9 @@ tGPS_INFO gtGpsInfo;
 // Compass
 HMC58X3 cCompass;
 
+// Accelerometer
+ADXL345 cAccel;
+
 // Arduino on I2C bus
 Arduino cArduino;
 
@@ -131,6 +135,8 @@ void	loop( void );
 //---------------------------------------------------------------
 int main(int argc, char **argv)
 {
+	int x, y, z;
+
 	system("clear");
 	printf("GpsBoat - Version 1.0\n\n");
 
@@ -140,7 +146,7 @@ int main(int argc, char **argv)
 	printf("Setting up hardware:\n");
 	setup();
 
-	delay(5000);
+	delay(3000);
  
 	//-----------------------
 	// Main Loop
@@ -160,6 +166,9 @@ int main(int argc, char **argv)
 		printf("\n");
 		printf("GPS Locked: %i\n", gtGpsInfo.bGpsLocked);
 		printf("GPS Lat: %f    Long: %f\n", gtGpsInfo.flat, gtGpsInfo.flon);
+
+		cAccel.readAccel(&x, &y, &z);
+		printf("\nAccelerometer data: %i, %i, %i", x, y, z);
 
 	    delay( 200 );
 	}
@@ -224,6 +233,13 @@ void setup()
 	{
 		printf("\tComm port to GPS opened. GPS Baud: %i\n", GPS_BAUD);
 	}
+
+	printf("OK\n");
+
+	//-----------------------
+	printf("Accelerometer ...\n");	
+
+	cAccel.init( ADXL345_ADDR_ALT_LOW );
 
 	printf("OK\n");
 

@@ -32,7 +32,6 @@ You should have received a copy of the GNU General Public License along with thi
 #include <wiringPi.h>
 #include <wiringPiI2C.h>
 
-
 #ifndef HMC58X3_h
 #define HMC58X3_h
 
@@ -92,15 +91,15 @@ class HMC58X3
     void getValues(float *xyz);
     void getRaw(int *x,int *y,int *z);
     void getRaw(int *xyz);
-    void calibrate(unsigned char gain);     // Original calibrate with a few weaknesses.
-    bool calibrate(unsigned char gain,unsigned int n_samples);
-    void setMode(unsigned char mode);
-    void setDOR(unsigned char DOR);
-    void setGain(unsigned char gain);
+    void calibrate(U8 gain);     // Original calibrate with a few weaknesses.
+    bool calibrate(U8 gain,unsigned int n_samples);
+    void setMode(U8 mode);
+    void setDOR(U8 DOR);
+    void setGain(U8 gain);
 	int  signExtened(int value);
     void getID(char id[3]);
   private:
-    void writeReg(unsigned char reg, unsigned char val);
+    void writeReg(U8 reg, U8 val);
     float x_scale,y_scale,z_scale,x_max,y_max,z_max;
 	int i2c_fd;
 };

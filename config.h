@@ -65,6 +65,12 @@
 #define SWITCH_WAYPOINT_DISTANCE        2.0
 
 #define PRINT_MSGS            0
+
+// COMPASS --------------------------
+#define USE_COMPASS_CALIBRATION			0
+#define USE_COMPASS_TILT_COMPENSATION	1
+
+// GPS ------------------------------
 #define USE_GPS_TIME_INFO     0
 
 #define DO_GPS_TEST           0
@@ -78,6 +84,8 @@
 #define GPS_BAUD		 		4800
 #endif
 
+// Arduino ---------------------------
+#define USE_ARDUINO				0
 #define ARDUINO_I2C_ADDR		(0x04)
 
 // GPS Data input Pins will always be the Arduino's own Rx/Tx pins. Disconnect before programming!

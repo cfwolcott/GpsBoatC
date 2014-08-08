@@ -51,6 +51,7 @@ bool ADXL345::init(int address)
 	else
 	{
 		//_dev_address = address;
+		delay(10);
 		powerOn();
 	}
 
@@ -77,19 +78,30 @@ void ADXL345::readAccel(int *xyz)
 // Reads the acceleration into three variable x, y and z
 void ADXL345::readAccel(int *x, int *y, int *z) 
 {
-  readFrom(ADXL345_DATAX0, TO_READ, _buff); //read the acceleration data from the ADXL345
+	int x_raw, y_raw, z_raw;
 
-  // each axis reading comes in 10 bit resolution, ie 2 bytes.  Least Significat Byte first!!
-  // thus we are converting both bytes in to one int
-  *x = (((int)_buff[1]) << 8) | _buff[0];  
-  *y = (((int)_buff[3]) << 8) | _buff[2];
-  *z = (((int)_buff[5]) << 8) | _buff[4];
+	readFrom(ADXL345_DATAX0, TO_READ, _buff); //read the acceleration data from the ADXL345
+
+	// each axis reading comes in 10 bit resolution, ie 2 bytes.  Least Significat Byte first!!
+	// thus we are converting both bytes in to one int
+	x_raw = (((int)_buff[1]) << 8) | _buff[0];  
+	y_raw = (((int)_buff[3]) << 8) | _buff[2];
+	z_raw = (((int)_buff[5]) << 8) | _buff[4];
+
+	*x = signExtened( x_raw );
+	*y = signExtened( y_raw );
+	*z = signExtened( z_raw );
+
+//	*x = x_raw;
+//	*y = y_raw;
+//	*z = z_raw;
 }
 
 //------------------------------------------------------------------------------
 void ADXL345::get_Gxyz(float *xyz){
   int i;
   int xyz_int[3];
+
   readAccel(xyz_int);
 
   for(i=0; i<3; i++)
@@ -109,20 +121,10 @@ void ADXL345::writeTo(U8 address, U8 val)
 // Reads num bytes starting from address register on device in to _buff array
 void ADXL345::readFrom( U8 address, int num, U8 _buff[] ) 
 {
-/*
-  Wire.beginTransmission(_dev_address); // start transmission to device
-  Wire.write(address);             // sends address to read from
-  Wire.endTransmission();         // end transmission
-
-  Wire.beginTransmission(_dev_address); // start transmission to device
-  Wire.requestFrom(_dev_address, num);    // request 6 bytes from device
-*/
   int i = 0;
 
-//  while(Wire.available())         // device may send less than requested (abnormal)
   for(i=0; i<num; i++)
   {
-//    _buff[i] = Wire.read();    // receive a U8
 	_buff[i] = wiringPiI2CReadReg8( i2c_fd, address++ );
   }
 
@@ -131,7 +133,6 @@ void ADXL345::readFrom( U8 address, int num, U8 _buff[] )
     status = ADXL345_ERROR;
     error_code = ADXL345_READ_ERROR;
   }
-//  Wire.endTransmission();         // end transmission
 }
 
 //------------------------------------------------------------------------------
@@ -173,7 +174,7 @@ void ADXL345::setRangeSetting(int val)
 
   readFrom(ADXL345_DATA_FORMAT, 1, &_b);
 
-  //_s |= (_b & B111011000xEC);
+  //_s |= (_b & B11101100);
   _s |= (_b & 0xEC);
 
   writeTo(ADXL345_DATA_FORMAT, _s);
@@ -670,6 +671,24 @@ bool ADXL345::getRegisterBit(U8 regAdress, int bitPos) {
   U8 _b;
   readFrom(regAdress, 1, &_b);
   return ((_b >> bitPos) & 1);
+}
+
+//------------------------------------------------------------------------------
+//
+// signExtened 
+//	sign-extends the 10-bit value from the accel to the RPi's 32-bit int size
+//
+int ADXL345::signExtened(int value) 
+{
+    int new_value = (0x000003FF & value );
+    int mask = 0x00000200;
+
+    if( mask & value )
+	{
+        new_value += 0xFFFFFC00;
+    }
+
+    return new_value;
 }
 
 //------------------------------------------------------------------------------

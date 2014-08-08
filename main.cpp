@@ -13,8 +13,10 @@
 #include <errno.h>
 #include "includes.h"
 #include "config.h" // defines I/O pins, operational parameters, etc.
+#include "tools.h"
 #include "TinyGPS.h"
-#include "HMC58X3.h"
+//#include "HMC58X3.h"
+#include "HMC5883L.h"
 #include "ADXL345.h"
 #include "Arduino.h"
 
@@ -73,8 +75,22 @@ typedef struct
     float flon;
 } tWAY_POINT;
 
+typedef struct vector
+{
+	float x, y, z;
+} vector;
+
 //---------------------------------------------------------------
 // local data
+
+// Vectors for compass and accelerometer
+vector m;
+vector a;
+
+// These are just some values for a particular unit; it is recommended that
+// a calibration be done for your particular unit.
+vector m_max;
+vector m_min;
 
 // Global program state
 E_NAV_STATE geNavState;
@@ -85,7 +101,8 @@ TinyGPS cGps;
 tGPS_INFO gtGpsInfo;
 
 // Compass
-HMC58X3 cCompass;
+//HMC58X3 cCompass;
+HMC5883L cCompass;
 
 // Accelerometer
 ADXL345 cAccel;
@@ -130,12 +147,19 @@ float   GetCompassHeading( float declination );
 void	setup( void );
 void	loop( void );
 
+int get_heading(vector from);
+void vector_cross(const vector *a,const vector *b, vector *out);
+float vector_dot(const vector *a,const vector *b);
+void vector_normalize(vector *a);
+
 //---------------------------------------------------------------
 // main
 //---------------------------------------------------------------
 int main(int argc, char **argv)
 {
-	int x, y, z;
+	// Min/Max values for magnotometer (as tested)
+	m_max.x = 389.0; m_max.y = 583.0; m_max.z = 356.0;
+	m_min.x = -322.0; m_min.y = -273.0; m_min.z = -450.0;
 
 	system("clear");
 	printf("GpsBoat - Version 1.0\n\n");
@@ -157,18 +181,15 @@ int main(int argc, char **argv)
 		loop();
 
 		// Print system status
-		system("clear");
+//		system("clear");
 		printf("Status: "); PrintProgramState( geNavState ); printf("\n");
 		printf("Navigation Info:\n");
 		printf("Bearing to Target: %i\n", gtNavInfo.bear_to_waypoint);
 		printf("Distance to Target: %f meters\n", gtNavInfo.dist_to_waypoint);
 		printf("Heading: %i\n", (U16)gtNavInfo.current_heading);
 		printf("\n");
-		printf("GPS Locked: %i\n", gtGpsInfo.bGpsLocked);
+		printf("GPS Locked: %s\n", (gtGpsInfo.bGpsLocked) ? "YES" : "NO");
 		printf("GPS Lat: %f    Long: %f\n", gtGpsInfo.flat, gtGpsInfo.flon);
-
-		cAccel.readAccel(&x, &y, &z);
-		printf("\nAccelerometer data: %i, %i, %i", x, y, z);
 
 	    delay( 200 );
 	}
@@ -180,6 +201,8 @@ int main(int argc, char **argv)
 void setup()
 {
 	char id_str[5];
+
+    LED_ON;
 
 	//-----------------------
 	printf("WireingPi ... ");
@@ -193,6 +216,7 @@ void setup()
 
 	printf("OK\n");
 
+#if USE_ARDUINO
 	//-----------------------
 	printf("Arduino ...\n");
 
@@ -220,6 +244,7 @@ void setup()
 	cArduino.SetReg( ARDUINO_REG_EXTRA_LED, 0 );
 
 	printf("OK\n");
+#endif	// USE_ARDUINO
 
 	//-----------------------
 	printf("GPS ...\n");
@@ -240,14 +265,18 @@ void setup()
 	printf("Accelerometer ...\n");	
 
 	cAccel.init( ADXL345_ADDR_ALT_LOW );
+	cAccel.setRangeSetting( 2 );
 
 	printf("OK\n");
 
 	//-----------------------
 	printf("Compass ...\n");
 
-    LED_ON;
+	cCompass = HMC5883L(); // init HMC5883
+	cCompass.SetScale(1.3); // Set the scale of the compass.
+  	cCompass.SetMeasurementMode(Measurement_Continuous); // Set the measurement mode to Continuous
 
+/*
     // Init compass class
     cCompass.init(false); // Dont set mode yet, we'll do that later on. 
 
@@ -255,6 +284,7 @@ void setup()
 	cCompass.getID( id_str );
 	printf("Compass ID: %s\n", id_str );
 
+#if USE_COMPASS_CALIBRATION
     // Calibrate HMC using self test, not recommended to change the gain after calibration.
 	printf("Calibrating ... ");
 	{
@@ -268,16 +298,17 @@ void setup()
 			}
 		}
 	}
+#endif // USE_COMPASS_CALIBRATION
 
-    // Single mode conversion was used in calibration, now set continuous mode
+    // Set continuous mode
     cCompass.setMode(0);
-
-    LED_OFF;
-
+*/
 	printf("OK\n");
      
     // Navigation state machine init
     geNavState = E_NAV_INIT;
+
+    LED_OFF;
 }
 
 //-----------------------------------------------------------------------------------
@@ -632,63 +663,232 @@ bool UpdateGps( tGPS_INFO *ptGpsInfo )
 //-----------------------------------------------------------------------------------
 E_DIRECTION DirectionToBearing( float DestinationBearing, float CurrentBearing, float BearingTolerance )
 {
-  E_DIRECTION eDirToGo;
-  float Diff = DestinationBearing - CurrentBearing;
-  float AbsDiff = abs(Diff);
-  bool bNeg = (Diff < 0);
-  bool bBig = (AbsDiff > 180.0);
-  
-  if( AbsDiff <= BearingTolerance )
-  {
-    // We're with-in a few degrees of the target. Just go straight!
-    eDirToGo = E_GO_STRAIGHT;
-  }
-  else
-  {
-      if( !bNeg && !bBig )
-          eDirToGo = E_GO_RIGHT;
-      if( !bNeg && bBig )
-          eDirToGo = E_GO_LEFT;
-      if( bNeg && !bBig )
-          eDirToGo = E_GO_LEFT;
-      if( bNeg && bBig )
-          eDirToGo = E_GO_RIGHT;
-  }
-  
-  return eDirToGo;
+	E_DIRECTION eDirToGo;
+	float Diff = DestinationBearing - CurrentBearing;
+	float AbsDiff = abs(Diff);
+	bool bNeg = (Diff < 0);
+	bool bBig = (AbsDiff > 180.0);
+
+	if( AbsDiff <= BearingTolerance )
+	{
+		// We're with-in a few degrees of the target. Just go straight!
+		eDirToGo = E_GO_STRAIGHT;
+	}
+	else
+	{
+		if( !bNeg && !bBig )
+		  eDirToGo = E_GO_RIGHT;
+		if( !bNeg && bBig )
+		  eDirToGo = E_GO_LEFT;
+		if( bNeg && !bBig )
+		  eDirToGo = E_GO_LEFT;
+		if( bNeg && bBig )
+		  eDirToGo = E_GO_RIGHT;
+	}
+
+	return eDirToGo;
+}
+
+//-----------------------------------------------------------------------------------
+float AngleCorrect(float inangle)
+{
+	float outangle = 0;
+
+	outangle = inangle;
+
+	while( outangle > 360)
+	{
+		outangle -= 360.0;
+	}
+
+	while (outangle < 0)
+	{
+		outangle += 360.0;
+	}
+
+	return(outangle);
 }
 
 //-----------------------------------------------------------------------------------
 float GetCompassHeading( float declination )
 {
-    // Calculate heading when the magnetometer is level, then correctfor signs of axis. 
-    float mag_x, mag_y, mag_z;
-    
-    cCompass.getValues( &mag_x, &mag_y, &mag_z );
-    
-    float heading = atan2( mag_y, mag_x );
+	float heading;
+
+	// Retrive the raw values from the compass (not scaled).
+	MagnetometerRaw raw = cCompass.ReadRawAxis();
+
+	// Retrived the scaled values from the compass (scaled to the configured scale).
+	MagnetometerScaled scaled = cCompass.ReadScaledAxis();
+
+	printf("Compass Raw: x= %i, y= %i, z= %i\n", raw.XAxis, raw.YAxis, raw.ZAxis);
+	printf("Compass Scaled: x= %f, y= %f, z= %f\n", scaled.XAxis, scaled.YAxis, scaled.ZAxis);
+
+#if USE_COMPASS_TILT_COMPENSATION
+
+	float cx, cy, cz;	// compass values
+	int ax, ay, az;	// accel values
+	
+	static int last_cx, last_cy, last_cz;
+	static int last_ax, last_ay, last_az;
+
+	float xh, yh, ayf, axf;
+
+	// Get compass values	
+	cx = scaled.XAxis;
+	cy = scaled.YAxis;
+	cz = scaled.ZAxis;
+
+	m.x = cx;
+	m.y = cy;
+	m.z = cz;
+#if 0
+	if(cx > m_max.x) m_max.x = cx;
+	if(cy > m_max.y) m_max.y = cy;
+	if(cz > m_max.z) m_max.z = cz;
+	
+	if(cx < m_min.x) m_min.x = cx;
+	if(cy < m_min.y) m_min.y = cy;
+	if(cz < m_min.z) m_min.z = cz;
+
+	printf("m_max: %f, %f, %f\n", m_max.x, m_max.y, m_max.z);
+	printf("m_min: %f, %f, %f\n", m_min.x, m_min.y, m_min.z);
+#endif
+
+//	cx = TOOLS_LowPassFilter( last_cx, cx );
+//	cy = TOOLS_LowPassFilter( last_cy, cy );
+//	cz = TOOLS_LowPassFilter( last_cz, cz );
+
+	// Get accelerometer values
+	float axyz[3];
+	cAccel.get_Gxyz( axyz );
+//	cAccel.readAccel( &ax, &ay, &az );
+
+//	ax = TOOLS_LowPassFilter( last_ax, ax );
+//	ay = TOOLS_LowPassFilter( last_ay, ay );
+//	az = TOOLS_LowPassFilter( last_az, az );
+
+	printf("Accel Raw: x= %f, y= %f, z= %f\n", axyz[0], axyz[1], axyz[2] );
+
+	a.x = axyz[0];
+	a.y = axyz[1];
+	a.z = axyz[2];
+
+	heading = get_heading((vector){0,-1,0});
+ 
+#if 0
+	// from web, doesn't seem to work
+	// Convert to rad
+	axf = radians( ax );
+	ayf = radians( ay );
+
+	xh = cx * cos(ayf) + cy * sin(ayf) * sin(axf) - cz * cos(axf) * sin(ayf);
+	yh = cy * cos(axf) + cz * sin(axf);
+
+//	heading = atan2((double)yh,(double)xh) * (180 / PI) -90; // angle in degrees
+	heading = atan2( yh, xh );
+#endif
+
+#else
+   
+	// Calculate heading when the magnetometer is level, then correct for signs of axis.
+//	heading = atan2(scaled.YAxis, scaled.XAxis);
+
+#if 0
+	// Rob's stuff (not sure how or why to use it?)
+	float FMagnitude = sqrt( (scaled.YAxis * scaled.YAxis) + (scaled.XAxis * scaled.XAxis) );
+	float inclination = atan2(scaled.ZAxis, FMagnitude);
+	float inclinationDegrees = AngleCorrect( (inclination * 180 / M_PI) + 57.45);
+	float Magnitude = sqrt( (scaled.YAxis * scaled.YAxis) + (scaled.XAxis * scaled.XAxis) + (scaled.ZAxis * scaled.ZAxis) );
+	float headingDegrees = AngleCorrect( (heading * 180 / M_PI) + declination );
+
+	printf("inclinationDegrees: %f\n", inclinationDegrees);
+	printf("Magnitude: %f\n", Magnitude);
+	printf("headingDegrees: %f\n", headingDegrees);
+
+	// end Rob's stuff
+#endif
+
+#endif // USE_COMPASS_TILT_COMPENSATION
 
     // If you have an EAST declination, use += declinationAngle, if you
     // have a WEST declination, use -= declinationAngle 
 
-    heading -= radians(declination);
+//	heading += radians( declination );
+	heading += declination;
 
     // Correct for when signs are reversed. 
-    if(heading < 0)
+    if( heading < 0 )
     {
-	heading += TWO_PI;
+		heading += TWO_PI;
     }
 
     // Check for wrap due to addition of declination. 
-    if(heading > TWO_PI)
+    if( heading > TWO_PI )
     {
     	heading -= TWO_PI;
     }
 
     // Convert radians to degrees for readability.
-    return degrees( heading );
-//    return (heading * 180/M_PI);
+//    return degrees( heading );
+	return heading;
 }
+
+// Returns the number of degrees from the From vector projected into
+// the horizontal plane is away from north.
+// 
+// Description of heading algorithm: 
+// Shift and scale the magnetic reading based on calibration data to
+// to find the North vector. Use the acceleration readings to
+// determine the Down vector. The cross product of North and Down
+// vectors is East. The vectors East and North form a basis for the
+// horizontal plane. The From vector is projected into the horizontal
+// plane and the angle between the projected vector and north is
+// returned.
+int get_heading(vector from)
+{
+    // shift and scale
+    m.x = (m.x - m_min.x) / (m_max.x - m_min.x) * 2 - 1.0;
+    m.y = (m.y - m_min.y) / (m_max.y - m_min.y) * 2 - 1.0;
+    m.z = (m.z - m_min.z) / (m_max.z - m_min.z) * 2 - 1.0;
+
+    vector temp_a = a;
+    // normalize
+    vector_normalize(&temp_a);
+    //vector_normalize(&m);
+
+    // compute E and N
+    vector E;
+    vector N;
+    vector_cross(&m, &temp_a, &E);
+    vector_normalize(&E);
+    vector_cross(&temp_a, &E, &N);
+	
+    // compute heading
+    int heading = round(atan2(vector_dot(&E, &from), vector_dot(&N, &from)) * 180 / M_PI);
+    if (heading < 0) heading += 360;
+	return heading;
+}
+
+void vector_cross(const vector *a,const vector *b, vector *out)
+{
+  out->x = a->y*b->z - a->z*b->y;
+  out->y = a->z*b->x - a->x*b->z;
+  out->z = a->x*b->y - a->y*b->x;
+}
+
+float vector_dot(const vector *a,const vector *b)
+{
+  return a->x*b->x+a->y*b->y+a->z*b->z;
+}
+
+void vector_normalize(vector *a)
+{
+  float mag = sqrt(vector_dot(a,a));
+  a->x /= mag;
+  a->y /= mag;
+  a->z /= mag;
+}
+
 
 //-----------------------------------------------------------------------------------
 void PrintProgramState( E_NAV_STATE eState )

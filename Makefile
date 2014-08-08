@@ -9,7 +9,7 @@ CFLAGS	= $(DEBUG) -Wall $(INCLUDE) -Winline -pipe
 LDFLAGS	= -L/usr/local/lib
 LDLIBS    = -lwiringPi -lwiringPiDev -lpthread -lm
 
-SRC	=	main.cpp TinyGPS.cpp HMC58X3.cpp Arduino.cpp ADXL345.cpp
+SRC	=	main.cpp TinyGPS.cpp HMC5883L.cpp Arduino.cpp ADXL345.cpp tools.cpp
 
 OBJ	=	$(SRC:.cpp=.o)
 
@@ -23,7 +23,7 @@ all: $(OBJ)
 	gcc -o gpsboat $^ $(LDFLAGS) $(LDLIBS)
 
 test:
-	gcc -o test test.cpp HMC58X3.cpp $(LDFLAGS) $(LDLIBS)
+	gcc -o test test.cpp HMC58X3.cpp ADXL345.cpp $(LDFLAGS) $(LDLIBS)
 
 clean:
 	rm -f *.o

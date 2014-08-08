@@ -200,10 +200,11 @@ public:
 private:
 	void readFrom(U8 address, int num, U8 buff[]);
 	void setRegisterBit(U8 regAdress, int bitPos, bool state);
-	bool getRegisterBit(U8 regAdress, int bitPos);  
-	U8 _buff[6] ;    //6 bytes buffer for saving data read from the device
-	int _dev_address;
-	int i2c_fd;
+	bool getRegisterBit(U8 regAdress, int bitPos);
+	int  signExtened(int value);
+	U8   _buff[6] ;    //6 bytes buffer for saving data read from the device
+	int  _dev_address;
+	int  i2c_fd;
 };
 
 //void print_U8(U8 val);

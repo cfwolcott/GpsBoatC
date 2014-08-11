@@ -39,7 +39,7 @@ ADXL345::ADXL345()
 }
 
 //------------------------------------------------------------------------------
-bool ADXL345::init(int address) 
+bool ADXL345::Init(int address) 
 {
 	// We're using wiringPi here on an RPi, we need to init the library for each i2c device
 

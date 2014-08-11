@@ -35,6 +35,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //------------------------------------------------------------------------------
 HMC5883L::HMC5883L()
 {
+	m_Scale = 1;
+}
+
+//------------------------------------------------------------------------------
+void HMC5883L::Init()
+{
 	// We're using wiringPi here on an RPi, we need to init the library for each i2c device
 
 	if( (i2c_fd = wiringPiI2CSetup( HMC5883L_Address )) < 0)
@@ -44,40 +50,38 @@ HMC5883L::HMC5883L()
 	}
 
 	delay(5); // you need to wait at least 5ms after power on to initialize
-
-	m_Scale = 1;
 }
 
 //------------------------------------------------------------------------------
 MagnetometerRaw HMC5883L::ReadRawAxis()
 {
-  Read(DataRegisterBegin, 6);
+	Read(DataRegisterBegin, 6);
 
-  MagnetometerRaw raw = MagnetometerRaw();
+	MagnetometerRaw raw = MagnetometerRaw();
 
-  raw.XAxis = (buffer[0] << 8) | buffer[1];
-  raw.ZAxis = (buffer[2] << 8) | buffer[3];
-  raw.YAxis = (buffer[4] << 8) | buffer[5];
+	raw.XAxis = (buffer[0] << 8) | buffer[1];
+	raw.ZAxis = (buffer[2] << 8) | buffer[3];
+	raw.YAxis = (buffer[4] << 8) | buffer[5];
 
-  raw.XAxis = signExtened(raw.XAxis);
-  raw.YAxis = signExtened(raw.YAxis);
-  raw.ZAxis = signExtened(raw.ZAxis);
+	raw.XAxis = signExtened(raw.XAxis);
+	raw.YAxis = signExtened(raw.YAxis);
+	raw.ZAxis = signExtened(raw.ZAxis);
 
-  return raw;
+	return raw;
 }
 
 //------------------------------------------------------------------------------
 MagnetometerScaled HMC5883L::ReadScaledAxis()
 {
-  MagnetometerRaw raw = ReadRawAxis();
+	MagnetometerRaw raw = ReadRawAxis();
 
-  MagnetometerScaled scaled = MagnetometerScaled();
+	MagnetometerScaled scaled = MagnetometerScaled();
 
-  scaled.XAxis = raw.XAxis * m_Scale;
-  scaled.ZAxis = raw.ZAxis * m_Scale;
-  scaled.YAxis = raw.YAxis * m_Scale;
+	scaled.XAxis = raw.XAxis * m_Scale;
+	scaled.ZAxis = raw.ZAxis * m_Scale;
+	scaled.YAxis = raw.YAxis * m_Scale;
 
-  return scaled;
+	return scaled;
 }
 
 //------------------------------------------------------------------------------
@@ -190,13 +194,3 @@ int HMC5883L::signExtened(int value)
     return new_value;
 }
 
-//------------------------------------------------------------------------------
-/*
-char* HMC5883L::GetErrorText(int errorCode)
-{
-	if(ErrorCode_1_Num == 1)
-		return ErrorCode_1;
-	
-	return "Error not defined.";
-}
-*/

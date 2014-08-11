@@ -56,26 +56,26 @@ struct MagnetometerRaw
 class HMC5883L
 {
 	public:
-	  HMC5883L();
+		HMC5883L();
+		void Init();
 
-	  MagnetometerRaw ReadRawAxis();
-	  MagnetometerScaled ReadScaledAxis();
-  
-	  int SetMeasurementMode( unsigned char mode);
-	  int SetScale(float gauss);
+		MagnetometerRaw ReadRawAxis();
+		MagnetometerScaled ReadScaledAxis();
 
-//	  char* GetErrorText(int errorCode);
+		int SetMeasurementMode( unsigned char mode);
+		int SetScale(float gauss);
 
-	  unsigned char EnsureConnected();
-	  unsigned char IsConnected;
+		unsigned char EnsureConnected();
+		unsigned char IsConnected;
+
 	protected:
-	  void Write(int address, int byte);
-	  void Read(int address, int length);
+		void Write(int address, int byte);
+		void Read(int address, int length);
 
 	private:
-	  int signExtened(int value);
-	  float m_Scale;
-	  unsigned char buffer[10];
-	  int i2c_fd;
+		int signExtened(int value);
+		float m_Scale;
+		unsigned char buffer[10];
+		int i2c_fd;
 };
 #endif

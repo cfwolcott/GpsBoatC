@@ -104,7 +104,7 @@ public:
 	float gains[3];        // counts to Gs
 
 	ADXL345();
-	bool init(int address);
+	bool Init(int address);
 	void powerOn();
 	void readAccel(int* xyx);
 	void readAccel(int* x, int* y, int* z);

@@ -23,7 +23,7 @@ all: $(OBJ)
 	gcc -o gpsboat $^ $(LDFLAGS) $(LDLIBS)
 
 test:
-	gcc -o test test.cpp HMC58X3.cpp ADXL345.cpp $(LDFLAGS) $(LDLIBS)
+	gcc -o test test.cpp HMC6343.cpp $(LDFLAGS) $(LDLIBS)
 
 clean:
 	rm -f *.o

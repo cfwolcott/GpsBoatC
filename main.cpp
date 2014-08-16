@@ -15,7 +15,7 @@
 #include "config.h" // defines I/O pins, operational parameters, etc.
 #include "tools.h"
 #include "TinyGPS.h"
-#include "IMU_10DOF.h"
+#include "HMC6343.h"
 #include "Arduino.h"
 
 //---------------------------------------------------------------
@@ -60,6 +60,8 @@ typedef struct
 	bool bGpsLocked;
 } tGPS_INFO;
 
+#define GPS_DATA_KEY	0
+
 typedef struct
 {
 	float dist_to_waypoint;
@@ -82,10 +84,10 @@ E_NAV_STATE geNavState;
 // GPS
 int gSerial_fd;
 TinyGPS cGps;
-tGPS_INFO gtGpsInfo;
 
-// IMU
-IMU cImu;
+// GPS info is volatile because it will be updated in its own thread
+tGPS_INFO gtGpsInfo;
+//volatile tGPS_INFO gtGpsInfo;
 
 // Arduino on I2C bus
 Arduino cArduino;
@@ -118,15 +120,19 @@ tWAY_POINT gtWayPoint[] = {
 //---------------------------------------------------------------  
 // local function prototypes
 
-bool 	UpdateGps( tGPS_INFO *ptGpsInfo );
-void    PrintProgramState( E_NAV_STATE eState );
-E_DIRECTION DirectionToBearing( float DestinationBearing, float CurrentBearing, float BearingTolerance );
-void    SetSpeed( int new_speed );
-void    SetRudder( int new_setting );
-void	setup( void );
-void	loop( void );
+// Threads
+PI_THREAD 	(THREAD_UpdateGps);
 
-int get_heading(tVECTOR from);
+// Normal local functions
+void    	PrintProgramState( E_NAV_STATE eState );
+E_DIRECTION DirectionToBearing( float DestinationBearing, float CurrentBearing, float 		BearingTolerance );
+void    	SetSpeed( int new_speed );
+void		SetRudder( int new_setting );
+float 		GetCompassHeading( float declination );
+void		setup( void );
+void		loop( void );
+
+
 
 
 //---------------------------------------------------------------
@@ -154,11 +160,12 @@ int main(int argc, char **argv)
 		loop();
 
 		// Print system status
-//		system("clear");
-		printf("Status: "); PrintProgramState( geNavState ); printf("\n");
+		system("clear");
+		printf("Status:\n"); 
+		PrintProgramState( geNavState ); printf("\n");
 		printf("Navigation Info:\n");
 		printf("Bearing to Target: %i\n", gtNavInfo.bear_to_waypoint);
-		printf("Distance to Target: %f meters\n", gtNavInfo.dist_to_waypoint);
+		printf("Distance to Target: %.1f meters\n", gtNavInfo.dist_to_waypoint);
 		printf("Heading: %i\n", (U16)gtNavInfo.current_heading);
 		printf("\n");
 		printf("GPS Locked: %s\n", (gtGpsInfo.bGpsLocked) ? "YES" : "NO");
@@ -230,13 +237,18 @@ void setup()
 	else
 	{
 		printf("\tComm port to GPS opened. GPS Baud: %i\n", GPS_BAUD);
+
+		// Start the GPS thread
+		piThreadCreate( THREAD_UpdateGps );
 	}
 
 	printf("OK\n");
 
 	//-----------------------
-	printf("IMU Board ...\n");	
-	cImu.Init();
+	printf("Compass ... ");
+
+	HMC6343_Setup();
+
 	printf("OK\n");
      
     // Navigation state machine init
@@ -251,10 +263,10 @@ void loop( void )
     // Set LED on
     LED_ON;
     
-    // **********************
+    // *******************************************
     // Update cGps Data/Status
-    // **********************
-    gtGpsInfo.bGpsLocked = UpdateGps( &gtGpsInfo );
+	// This is now updated in the THREAD_UpdateGps
+    // *******************************************
     
     // **********************************
     // Navigation State Machine variables
@@ -263,7 +275,6 @@ void loop( void )
     float bearing_tolerance;
     static U8 update_counter = 0;  // 100ms x 10 == 1 second update since loop runs about every 100ms
     static S16 gps_delay = 0;
-	static E_NAV_STATE last_NavState = E_NAV_MAX;
     
 	// **********************
 	// Update compass heading
@@ -275,13 +286,7 @@ void loop( void )
 //      }
 //      else
 	{    
-		gtNavInfo.current_heading = cImu.GetHeading( MAG_VAR );
-	}
-      
-	if( last_NavState != geNavState )
-	{
-		last_NavState = geNavState;
-		PrintProgramState( geNavState );
+		gtNavInfo.current_heading = GetCompassHeading( MAG_VAR );
 	}
 
 	// ******************
@@ -461,6 +466,31 @@ void loop( void )
     LED_OFF;
 }
 
+//------------------------------------------------------------------------------
+float GetCompassHeading( float declination )
+{
+	float heading = (float)(HMC6343_GetHeading()) / 10.0;
+
+    // If you have an EAST declination, use + declinationAngle, if you
+    // have a WEST declination, use - declinationAngle 
+
+	heading -= declination;
+
+    // Correct for when signs are reversed. 
+    if( heading < 0.0 )
+    {
+		heading += 360.0;
+    }
+
+    // Check for wrap due to addition of declination. 
+    if( heading > 360.0 )
+    {
+    	heading -= 360.0;
+    }
+
+	return heading;
+}
+
 //-----------------------------------------------------------------------------------
 // Gradually sets the new ESC speed setting unless its STOP
 // Assumes LOWER settings == faster
@@ -469,8 +499,9 @@ void SetSpeed( int new_setting )
   int last_setting;
   int step_and_dir;
 
+#if USE_ARDUINO
 	cArduino.SetReg( ARDUINO_REG_ESC, new_setting);
-  
+#endif  
 /*
   
   if( new_setting == SPEED_STOP )
@@ -510,7 +541,9 @@ void SetRudder( int new_setting )
 	new_setting = 180 - new_setting;
 #endif
 
+#if USE_ARDUINO
 	cArduino.SetReg( ARDUINO_REG_STEERING, new_setting);
+#endif
 	return;
 /*  
   // Get the last value written to the servo
@@ -537,61 +570,76 @@ void SetRudder( int new_setting )
 
 //-----------------------------------------------------------------------------------
 // Returns valid cGps data if GPS has a Fix
-bool UpdateGps( tGPS_INFO *ptGpsInfo )
+PI_THREAD (THREAD_UpdateGps )
 {
     static bool bLocked = false;
     bool bNewGpsData = false;
     unsigned long fix_age;
     int year;
     U8 month, day, hundredths;
+
+	printf("THREAD_UpdateGps started\n");
 	
-    // *******************************    
-    // Grab GPS data from serial input
-    // *******************************
-	while( serialDataAvail(gSerial_fd) )
-    {
-        char c;
-		c = serialGetchar(gSerial_fd);
+	while( true )
+	{
+		delay( 200 );
+
+		// *******************************    
+		// Grab GPS data from serial input
+		// *******************************
+		while( serialDataAvail(gSerial_fd) )
+		{
+		    char c;
+			c = serialGetchar(gSerial_fd);
 
 #if DO_GPS_TEST        
-        printf("%c", c);
-		fflush( stdout );
+		    printf("%c", c);
+			fflush( stdout );
 #endif
-        if (cGps.encode(c))
-        {
-            bNewGpsData = true;
-        }
-    }
-    
-    // ********************
-    // Process new cGps info
-    // ********************
-    if( bNewGpsData )
-    {        
-        // GPS Position
-        // retrieves +/- lat/long in 100000ths of a degree
-        cGps.f_get_position( &ptGpsInfo->flat, &ptGpsInfo->flon, &fix_age);
-        if (fix_age == TinyGPS::GPS_INVALID_AGE)
-        {
-            bLocked = false;
-        }
-        else
-        {
-            bLocked = true;
-        }
-            
+		    if (cGps.encode(c))
+		    {
+		        bNewGpsData = true;
+		    }
+		}
+		
+		// ********************
+		// Process new cGps info
+		// ********************
+		if( bNewGpsData )
+		{
+			// Lock the GPS data for updating
+			piLock( GPS_DATA_KEY );
+        
+		    // GPS Position
+		    // retrieves +/- lat/long in 100000ths of a degree
+		    cGps.f_get_position( &gtGpsInfo.flat, &gtGpsInfo.flon, &fix_age);
+
+		    if (fix_age == TinyGPS::GPS_INVALID_AGE)
+		    {
+		        gtGpsInfo.bGpsLocked = false;
+		    }
+		    else
+		    {
+		        gtGpsInfo.bGpsLocked = true;
+		    }
+		        
 #if USE_GPS_TIME_INFO
-        // GPS Time
-        cGps.crack_datetime(&year, &month, &day, &ptGpsInfo->hour, &ptGpsInfo->minute, &ptGpsInfo->second, &hundredths, &fix_age);
+		    // GPS Time
+		    cGps.crack_datetime(&year, &month, &day, &gtGpsInfo.hour, &gtGpsInfo.minute, &gtGpsInfo.second, &hundredths, &fix_age);
 #endif // USE_GPS_TIME_INFO
 
-        // GPS Speed
-        ptGpsInfo->fmph = cGps.f_speed_mph(); // speed in miles/hr
-        // course in 100ths of a degree
-        ptGpsInfo->fcourse = cGps.f_course();
+		    // GPS Speed
+		    gtGpsInfo.fmph = cGps.f_speed_mph(); // speed in miles/hr
+		    // course in 100ths of a degree
+		    gtGpsInfo.fcourse = cGps.f_course();
+
+			// Unlock the GPS data for updating
+			piUnlock( GPS_DATA_KEY );
+
+			// reset new data flag			
+			bNewGpsData = false;
+		}
     }
-    
-    return bLocked;
 }
 
 //-----------------------------------------------------------------------------------
@@ -646,7 +694,6 @@ float AngleCorrect(float inangle)
 //-----------------------------------------------------------------------------------
 void PrintProgramState( E_NAV_STATE eState )
 {
-	printf("State: ");
 	switch( eState )
 	{
 	case E_NAV_INIT:

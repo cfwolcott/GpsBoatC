@@ -6,11 +6,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <wiringPi.h>
-#include <wiringSerial.h>
 #include <math.h>
 #include <string.h>
 #include <errno.h>
+#include <inttypes.h>
+
+// Wiring Pi library
+#include <wiringPi.h>
+#include <wiringSerial.h>
+
 #include "includes.h"
 #include "config.h" // defines I/O pins, operational parameters, etc.
 #include "tools.h"
@@ -18,12 +22,30 @@
 #include "HMC6343.h"
 #include "Arduino.h"
 
+#if USE_PI_PLATE
+// LCD Library (local files)
+#include "lcd.h"
+#include "gpio.h"
+#include "button.h"
+#endif
+
 //---------------------------------------------------------------
 // local defines
 
 #define LED_PIN		2
 #define LED_ON		digitalWrite (LED_PIN, HIGH) ;	// On
 #define LED_OFF		digitalWrite (LED_PIN, LOW) ;	// Off
+
+//								|****************|
+#define MSG_INIT				"Initializing    "
+#define MSG_WAIT_FOR_GPS_LOCK	"Wait 4 GPS lock "
+#define MSG_WAIT_FOR_GPS_STAB	"GPS Stabalize   "
+#define MSG_WAIT_FOR_GPS_RELOCK "GPS Relocking   "
+#define MSG_SET_NEXT_WAYPOINT	"Setting Waypoint"
+#define MSG_START				"Starting Nav    "
+#define MSG_RUN					"Running ...     "
+#define MSG_STOP				"Stop Nav        "
+#define MSG_IDLE				"Idle            "
 
 typedef enum
 {
@@ -95,6 +117,11 @@ Arduino cArduino;
 // Navigation Info
 tNAV_INFO gtNavInfo;
 
+#if USE_PI_PLATE
+// Global button variable used by the THREAD_PiPlateButtons
+Button gtActiveButton;
+#endif
+
 int gTargetWP = 0;
 
 // Way point table
@@ -122,26 +149,34 @@ tWAY_POINT gtWayPoint[] = {
 
 // Threads
 PI_THREAD 	(THREAD_UpdateGps);
+#if USE_PI_PLATE
+PI_THREAD	(THREAD_PiPlateButtons);
+#endif
 
 // Normal local functions
 void    	PrintProgramState( E_NAV_STATE eState );
-E_DIRECTION DirectionToBearing( float DestinationBearing, float CurrentBearing, float 		BearingTolerance );
+#if USE_PI_PLATE
+void		PrintProgramState_on_LCD( E_NAV_STATE eState );
+Button		BTN_WaitForButton( Button ButtonToWaitFor );
+Button		BTN_WaitForAnyButton( void );
+Button		BTN_GetCurrentButton( void );
+#endif
+E_DIRECTION DirectionToBearing( float DestinationBearing, float CurrentBearing, float BearingTolerance );
 void    	SetSpeed( int new_speed );
 void		SetRudder( int new_setting );
 float 		GetCompassHeading( float declination );
+
 void		setup( void );
 void		loop( void );
-
-
-
 
 //---------------------------------------------------------------
 // main
 //---------------------------------------------------------------
 int main(int argc, char **argv)
 {
+	E_NAV_STATE last_nav_state;
 	system("clear");
-	printf("GpsBoat - Version 1.0\n\n");
+	printf("GpsBoat - Version %s\n\n", SOFTWARE_VERSION);
 
 	//-----------------------
 	// Setup hardware
@@ -150,6 +185,17 @@ int main(int argc, char **argv)
 	setup();
 
 	delay(3000);
+
+#if USE_PI_PLATE
+	LCD_colour( Blue );
+	LCD_home();
+	LCD_clear();
+
+	LCD_printf("Press Select    ");
+	BTN_WaitForButton( Select );
+#endif
+
+	last_nav_state = geNavState;
  
 	//-----------------------
 	// Main Loop
@@ -161,8 +207,16 @@ int main(int argc, char **argv)
 
 		// Print system status
 		system("clear");
-		printf("Status:\n"); 
-		PrintProgramState( geNavState ); printf("\n");
+		printf("Status: "); 
+		PrintProgramState( geNavState ); printf("\n\n");
+
+		// Only update the LCD when state changes
+		if( last_nav_state != geNavState )
+		{
+			PrintProgramState_on_LCD( geNavState );
+			last_nav_state = geNavState;
+		}
+
 		printf("Navigation Info:\n");
 		printf("Bearing to Target: %i\n", gtNavInfo.bear_to_waypoint);
 		printf("Distance to Target: %.1f meters\n", gtNavInfo.dist_to_waypoint);
@@ -195,6 +249,28 @@ void setup()
     pinMode(LED_PIN, OUTPUT);
 
 	printf("OK\n");
+
+#if USE_PI_PLATE
+	if( GPIO_open() < 0 )
+	{
+		exit(0);
+	}
+    
+	LCD_init(0);
+
+	LCD_home();
+	LCD_clear();
+
+	LCD_printf("GPS Boat");
+	
+	LCD_cursor_goto(1, 0);
+	LCD_printf("Version %s", SOFTWARE_VERSION );
+
+	LCD_colour( Red );
+
+	// Start the button polling thread
+	piThreadCreate( THREAD_PiPlateButtons );
+#endif
 
 #if USE_ARDUINO
 	//-----------------------
@@ -229,14 +305,14 @@ void setup()
 	//-----------------------
 	printf("GPS ...\n");
 
-	if ((gSerial_fd = serialOpen ("/dev/ttyAMA0", GPS_BAUD)) < 0)
+	if ((gSerial_fd = serialOpen (GPS_SERIAL_PORT, GPS_BAUD)) < 0)
 	{
 		fprintf (stderr, "\tUnable to open serial device: %s\n", strerror (errno)) ;
 		return;
 	}
 	else
 	{
-		printf("\tComm port to GPS opened. GPS Baud: %i\n", GPS_BAUD);
+		printf("Comm port to GPS opened. GPS Baud: %i\n", GPS_BAUD);
 
 		// Start the GPS thread
 		piThreadCreate( THREAD_UpdateGps );
@@ -697,34 +773,124 @@ void PrintProgramState( E_NAV_STATE eState )
 	switch( eState )
 	{
 	case E_NAV_INIT:
-	  printf("Init");
-	  break;
+		printf(MSG_INIT);
+		break;
 	case E_NAV_WAIT_FOR_GPS_LOCK:
-	  printf("Wait for GPS Lock");
-	  break;
+		printf(MSG_WAIT_FOR_GPS_LOCK);
+		break;
 	case E_NAV_WAIT_FOR_GPS_STABLIZE:
-	  printf("Wait for GPS to Stabalize");
-	  break;
+		printf(MSG_WAIT_FOR_GPS_STAB);
+		break;
 	case E_NAV_WAIT_FOR_GPS_RELOCK:
-	  printf("Wait for GPS Relock");
-	  break;
+		printf(MSG_WAIT_FOR_GPS_RELOCK);
+		break;
 	case E_NAV_SET_NEXT_WAYPOINT:
-	  printf("Set Next Waypoint");
-	  break;
+		printf(MSG_SET_NEXT_WAYPOINT);
+		break;
 	case E_NAV_START:
-	  printf("Start");
-	  break;
+		printf(MSG_START);
+		break;
 	case E_NAV_RUN:
-	  printf("Run");
-	  break;
+		printf(MSG_RUN);
+		break;
 	case E_NAV_STOP:
-	  printf("Stop");
-	  break;
+		printf(MSG_STOP);
+		break;
 	case E_NAV_IDLE:
-	  printf("Idle");
-	  break;
+		printf(MSG_IDLE);
+		break;
 	}
-	printf("\n");
-	//fflush (stdout);
 }
 
+//-----------------------------------------------------------------------------------
+#if USE_PI_PLATE
+void PrintProgramState_on_LCD( E_NAV_STATE eState )
+{
+	LCD_home();
+
+	switch( eState )
+	{
+	case E_NAV_INIT:
+		LCD_printf(MSG_INIT);
+		break;
+	case E_NAV_WAIT_FOR_GPS_LOCK:
+		LCD_printf(MSG_WAIT_FOR_GPS_LOCK);
+		break;
+	case E_NAV_WAIT_FOR_GPS_STABLIZE:
+		LCD_printf(MSG_WAIT_FOR_GPS_STAB);
+		break;
+	case E_NAV_WAIT_FOR_GPS_RELOCK:
+		LCD_printf(MSG_WAIT_FOR_GPS_RELOCK);
+		break;
+	case E_NAV_SET_NEXT_WAYPOINT:
+		LCD_printf(MSG_SET_NEXT_WAYPOINT);
+		break;
+	case E_NAV_START:
+		LCD_printf(MSG_START);
+		break;
+	case E_NAV_RUN:
+		LCD_printf(MSG_RUN);
+		break;
+	case E_NAV_STOP:
+		LCD_printf(MSG_STOP);
+		break;
+	case E_NAV_IDLE:
+		LCD_printf(MSG_IDLE);
+		break;
+	}
+}
+
+//-----------------------------------------------------------------------------------
+PI_THREAD (THREAD_PiPlateButtons)
+{
+	Button butt;
+
+	printf("THREAD_PiPlateButtons started\n");
+	
+	while( true )
+	{
+		delay( 200 );
+
+		// Read button state
+		butt = btn_nblk();
+
+		if( butt != Null )
+		{
+			// A button is pressed. Wait for it to go back up
+			while( btn_nblk() != Null )
+			{
+				delay(10);
+			}
+
+			// Button released. Set the global variable
+			gtActiveButton = butt;
+		}
+	}
+}
+//-----------------------------------------------------------------------------------
+Button BTN_WaitForButton( Button ButtonToWaitFor )
+{
+	while( ButtonToWaitFor != gtActiveButton )
+	{
+		delay(10);
+	}
+}
+
+//-----------------------------------------------------------------------------------
+Button BTN_WaitForAnyButton( void )
+{
+	gtActiveButton = Null;
+
+	while( Null != gtActiveButton )
+	{
+		delay(10);
+	}
+}
+
+//-----------------------------------------------------------------------------------
+Button BTN_GetCurrentButton( void )
+{
+	return gtActiveButton;
+}
+
+#endif	// #if USE_PI_PLATE

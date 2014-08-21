@@ -211,7 +211,7 @@ void HMC6343_Setup( void )
 
 	// Open the WiringPi serial port to SC18IM700 (Master I2C controller with uart interface)
 	printf("Opening serial port ... ");
-	gfd = serialOpen( "/dev/ttyUSB0" , 9600 );
+	gfd = serialOpen( COMPASS_SERIAL_PORT , 9600 );
 
 	if( !gfd )
 	{

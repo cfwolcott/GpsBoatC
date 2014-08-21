@@ -3,6 +3,9 @@
 
 //-----------------------------------------------------------------------------------
 // DEFINES
+
+#define SOFTWARE_VERSION		"1.0"
+
 //#define MAG_VAR              7    // Florida
 #define MAG_VAR                -13    // California
 
@@ -66,9 +69,11 @@
 
 #define PRINT_MSGS            0
 
+// "Pi Plate" LCD -------------------
+#define USE_PI_PLATE					1	// LCD and Button board
+
 // COMPASS --------------------------
-#define USE_COMPASS_CALIBRATION			0
-#define USE_COMPASS_TILT_COMPENSATION	1
+
 
 // GPS ------------------------------
 #define USE_GPS_TIME_INFO     0
@@ -83,6 +88,8 @@
 #else
 #define GPS_BAUD		 		4800
 #endif
+
+#define GPS_SERIAL_PORT			"/dev/ttyAMA0"
 
 // Arduino ---------------------------
 #define USE_ARDUINO				0

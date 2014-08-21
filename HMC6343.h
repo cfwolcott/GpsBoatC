@@ -426,6 +426,8 @@ Byte
 #define HMC6343__WRITE_EEPROM__CMD							(0xF1)
 #define HMC6343__WRITE_EEPROM__CMD_SIZE						(HMC6343__MAX_CMD_SIZE)
 
+#define COMPASS_SERIAL_PORT									"/dev/ttyUSB0"
+
 
 //*** global function prototypes *********************************************
 

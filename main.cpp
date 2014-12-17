@@ -18,7 +18,7 @@
 #include "includes.h"
 #include "config.h" // defines I/O pins, operational parameters, etc.
 #include "tools.h"
-#include "TinyGPS.h"
+#include "TinyGPS++.h"
 #include "HMC6343.h"
 #include "Arduino.h"
 
@@ -28,6 +28,9 @@
 #include "gpio.h"
 #include "button.h"
 #endif
+
+//---------------------------------------------------------------
+// external defines
 
 //---------------------------------------------------------------
 // local defines
@@ -72,10 +75,10 @@ typedef enum
 
 typedef struct
 {
-    float flat;
-    float flon;
-    float fmph;
-    float fcourse;
+    double flat;
+    double flon;
+    double fmph;
+    double fcourse;
     U8 hour;
     U8 minute;
     U8 second;
@@ -105,7 +108,7 @@ E_NAV_STATE geNavState;
 
 // GPS
 int gSerial_fd;
-TinyGPS cGps;
+TinyGPSPlus cGps;
 
 // GPS info is volatile because it will be updated in its own thread
 tGPS_INFO gtGpsInfo;
@@ -213,7 +216,9 @@ int main(int argc, char **argv)
 		// Only update the LCD when state changes
 		if( last_nav_state != geNavState )
 		{
+#if USE_PI_PLATE
 			PrintProgramState_on_LCD( geNavState );
+#endif
 			last_nav_state = geNavState;
 		}
 
@@ -221,6 +226,11 @@ int main(int argc, char **argv)
 		printf("Bearing to Target: %i\n", gtNavInfo.bear_to_waypoint);
 		printf("Distance to Target: %.1f meters\n", gtNavInfo.dist_to_waypoint);
 		printf("Heading: %i\n", (U16)gtNavInfo.current_heading);
+#if USE_PI_PLATE
+		// Show heading on LCD
+		LCD_cursor_goto(1, 0);
+		LCD_printf("Heading: %i", gtNavInfo.current_heading);
+#endif
 		printf("\n");
 		printf("GPS Locked: %s\n", (gtGpsInfo.bGpsLocked) ? "YES" : "NO");
 		printf("GPS Lat: %f    Long: %f\n", gtGpsInfo.flat, gtGpsInfo.flon);
@@ -412,10 +422,10 @@ void loop( void )
           gTargetWP = gTargetWP % NUM_WAY_POINTS;
           
           // Calculate inital bearing to waypoint
-          gtNavInfo.bear_to_waypoint = cGps.course_to( gtGpsInfo.flat, gtGpsInfo.flon,
+          gtNavInfo.bear_to_waypoint = cGps.courseTo( gtGpsInfo.flat, gtGpsInfo.flon,
           				    gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
 
-		  gtNavInfo.dist_to_waypoint = cGps.distance_between( gtGpsInfo.flat, gtGpsInfo.flon,
+		  gtNavInfo.dist_to_waypoint = cGps.distanceBetween( gtGpsInfo.flat, gtGpsInfo.flon,
    						    gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
 
           geNavState = E_NAV_START;
@@ -458,7 +468,7 @@ void loop( void )
               SetSpeed( SPEED_50_PERCENT );
 
               // Calculate initial distance to next point
-              initial_dist_to_waypoint = cGps.distance_between( gtGpsInfo.flat, gtGpsInfo.flon,
+              initial_dist_to_waypoint = cGps.distanceBetween( gtGpsInfo.flat, gtGpsInfo.flon,
     						       gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
               gtNavInfo.dist_to_waypoint = initial_dist_to_waypoint;
               printf("Distance to waypoint: %f\n", gtNavInfo.dist_to_waypoint);
@@ -470,10 +480,10 @@ void loop( void )
           if( 0 == (update_counter++ % 10) )
           {
               // Update range and bearing to waypoint
-              gtNavInfo.dist_to_waypoint = cGps.distance_between( gtGpsInfo.flat, gtGpsInfo.flon,
+              gtNavInfo.dist_to_waypoint = cGps.distanceBetween( gtGpsInfo.flat, gtGpsInfo.flon,
     						     gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
     
-              gtNavInfo.bear_to_waypoint = cGps.course_to( gtGpsInfo.flat, gtGpsInfo.flon,
+              gtNavInfo.bear_to_waypoint = cGps.courseTo( gtGpsInfo.flat, gtGpsInfo.flon,
               				     gtWayPoint[gTargetWP].flat, gtWayPoint[gTargetWP].flon );
           }
           
@@ -688,15 +698,16 @@ PI_THREAD (THREAD_UpdateGps )
         
 		    // GPS Position
 		    // retrieves +/- lat/long in 100000ths of a degree
-		    cGps.f_get_position( &gtGpsInfo.flat, &gtGpsInfo.flon, &fix_age);
+			gtGpsInfo.flat = cGps.location.lat();
+			gtGpsInfo.flon = cGps.location.lng();
 
-		    if (fix_age == TinyGPS::GPS_INVALID_AGE)
+		    if( cGps.location.isValid() )
 		    {
-		        gtGpsInfo.bGpsLocked = false;
+		        gtGpsInfo.bGpsLocked = true;
 		    }
 		    else
 		    {
-		        gtGpsInfo.bGpsLocked = true;
+		        gtGpsInfo.bGpsLocked = false;
 		    }
 		        
 #if USE_GPS_TIME_INFO
@@ -705,9 +716,9 @@ PI_THREAD (THREAD_UpdateGps )
 #endif // USE_GPS_TIME_INFO
 
 		    // GPS Speed
-		    gtGpsInfo.fmph = cGps.f_speed_mph(); // speed in miles/hr
+		    gtGpsInfo.fmph = cGps.speed.mph(); // speed in miles/hr
 		    // course in 100ths of a degree
-		    gtGpsInfo.fcourse = cGps.f_course();
+		    gtGpsInfo.fcourse = cGps.course.deg();
 
 			// Unlock the GPS data for updating
 			piUnlock( GPS_DATA_KEY );
@@ -857,6 +868,7 @@ PI_THREAD (THREAD_PiPlateButtons)
 		if( butt != Null )
 		{
 			// A button is pressed. Wait for it to go back up
+			printf("A button is pressed. Wait for it to go back up\n");
 			while( btn_nblk() != Null )
 			{
 				delay(10);

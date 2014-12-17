@@ -30,4 +30,6 @@ int 	TOOLS_LowPassFilter( int s16LastValue, int s16CurrentValue );
 void 	TOOLS_RA_Signed_Init( U8 u8SampleCount, RUNNING_SIGNED_AVERAGE_TYPE *ptSamples );
 S16 	TOOLS_RA_ComputeSingedAverage( S16 s16Sample, RUNNING_SIGNED_AVERAGE_TYPE *ptSamples );
 
+int TOOLS_millis();
+
 #endif

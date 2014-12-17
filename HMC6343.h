@@ -39,6 +39,8 @@
 // TWI 7-bit address
 #define HMC6343__ADDRESS														0x32
 
+#define COMPASS_SERIAL_PORT														"/dev/ttyUSB0"
+
 // supported clock rates
 #define HMC6343__TWI_CLOCK__MASK												(\
 																					TWI_CLOCK__100_KHZ__SUPPORTED__STATE |\
@@ -425,8 +427,6 @@ Byte
 
 #define HMC6343__WRITE_EEPROM__CMD							(0xF1)
 #define HMC6343__WRITE_EEPROM__CMD_SIZE						(HMC6343__MAX_CMD_SIZE)
-
-#define COMPASS_SERIAL_PORT									"/dev/ttyUSB0"
 
 
 //*** global function prototypes *********************************************

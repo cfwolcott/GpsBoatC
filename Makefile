@@ -9,7 +9,7 @@ CFLAGS	= $(DEBUG) -Wall $(INCLUDE) -Winline -pipe
 LDFLAGS	= -L/usr/local/lib
 LDLIBS    = -lwiringPi -lwiringPiDev -lpthread -lm
 
-SRC	=	main.cpp TinyGPS.cpp HMC6343.cpp Arduino.cpp tools.cpp
+SRC	=	main.cpp TinyGPS++.cpp HMC6343.cpp Arduino.cpp tools.cpp
 OBJ	=	$(SRC:.cpp=.o) liblcd.a
 EXEC	=	gpsboat
 
@@ -19,7 +19,7 @@ EXEC	=	gpsboat
 all: $(SRC) $(EXEC)
 
 $(EXEC): $(OBJ)
-	$(CC) $(LDFLAGS) $(LDLIBS) $(OBJ) -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) $(LDLIBS) $(OBJ) -o $@
 
 depend: .depend
 .depend: $(SRC)

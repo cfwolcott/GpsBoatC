@@ -70,7 +70,7 @@
 #define PRINT_MSGS            0
 
 // "Pi Plate" LCD -------------------
-#define USE_PI_PLATE					1	// LCD and Button board
+#define USE_PI_PLATE					0	// LCD and Button board
 
 // COMPASS --------------------------
 
@@ -80,20 +80,21 @@
 
 #define DO_GPS_TEST           0
 
-#define USE_ULTIMATE_GPS      0
-#define USE_PHAROS_GPS        1
+#define USE_ULTIMATE_GPS      1
+#define USE_PHAROS_GPS        0
 
 #if USE_ULTIMATE_GPS
-#define GPS_BAUD		  		9600
+#define GPS_BAUD		9600
+#define GPS_FIX_PIN		1
 #else
-#define GPS_BAUD		 		4800
+#define GPS_BAUD		4800
 #endif
 
-#define GPS_SERIAL_PORT			"/dev/ttyAMA0"
+#define GPS_SERIAL_PORT		"/dev/ttyAMA0"
 
 // Arduino ---------------------------
-#define USE_ARDUINO				0
-#define ARDUINO_I2C_ADDR		(0x04)
+#define USE_ARDUINO		0
+#define ARDUINO_I2C_ADDR	(0x04)
 
 // GPS Data input Pins will always be the Arduino's own Rx/Tx pins. Disconnect before programming!
 // Had to do this because SoftSerial library is not compatible with Servo library!
@@ -116,10 +117,10 @@
 #define SPEED_STEP_DELAY   200  // milliseconds between each new step size
 
 // Rudder Servo
-#define RUDDER_CENTER      75
-#define RUDDER_FULL_LEFT   35
+#define RUDDER_CENTER      127
+#define RUDDER_FULL_LEFT   50
 #define RUDDER_LEFT        RUDDER_FULL_LEFT
-#define RUDDER_FULL_RIGHT  110
+#define RUDDER_FULL_RIGHT  200
 #define RUDDER_RIGHT       RUDDER_FULL_RIGHT
 
 

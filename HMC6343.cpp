@@ -93,6 +93,8 @@ bool SendCommand( U8 cmd, U8 arg1, U8 arg2, U8 size)
 	// Stop
 	serialPutchar( gfd, 'P' );
 
+	return true;
+
 }
 
 //*****************************************************************************

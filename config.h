@@ -67,10 +67,10 @@
 // Set this to the maximum distance to a waypoint before we switch to the next waypoint
 #define SWITCH_WAYPOINT_DISTANCE        2.0
 
-#define PRINT_MSGS            0
+#define PRINT_MSGS            			0
 
 // "Pi Plate" LCD -------------------
-#define USE_PI_PLATE					0	// LCD and Button board
+#define USE_PI_PLATE					1	// LCD and Button board
 
 // COMPASS --------------------------
 
@@ -84,10 +84,10 @@
 #define USE_PHAROS_GPS        0
 
 #if USE_ULTIMATE_GPS
-#define GPS_BAUD		9600
-#define GPS_FIX_PIN		1
+#define GPS_BAUD			9600
+#define GPS_FIX_PIN			1
 #else
-#define GPS_BAUD		4800
+#define GPS_BAUD			4800
 #endif
 
 #define GPS_SERIAL_PORT		"/dev/ttyAMA0"

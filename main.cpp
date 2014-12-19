@@ -50,6 +50,8 @@
 #define MSG_STOP				"Stop Nav        "
 #define MSG_IDLE				"Idle            "
 
+#define LOOP_UPDATE_RATE_MS		200		// How often the main update loop runs
+
 typedef enum
 {
   E_GO_LEFT,
@@ -178,6 +180,8 @@ void		loop( void );
 int main(int argc, char **argv)
 {
 	E_NAV_STATE last_nav_state;
+	int DisplayUpdateCounter = 0;
+
 	system("clear");
 	printf("GpsBoat - Version %s\n\n", SOFTWARE_VERSION);
 
@@ -208,34 +212,46 @@ int main(int argc, char **argv)
 	{
 		loop();
 
-		// Print system status
-		system("clear");
-		printf("Status: "); 
-		PrintProgramState( geNavState ); printf("\n\n");
+	    delay( LOOP_UPDATE_RATE_MS );
 
-		// Only update the LCD when state changes
-		if( last_nav_state != geNavState )
+		if( DisplayUpdateCounter-- <= 0 )
 		{
+			// reset display counter for 1000ms updates based on loop update rate
+			DisplayUpdateCounter = 1000 / LOOP_UPDATE_RATE_MS;
+
+			// Print system status
+			system("clear");
+			printf("Status: "); 
+			PrintProgramState( geNavState ); printf("\n\n");
+
+			printf("*** Navigation Info ***\n");
+			printf("Bearing to Target: %i\n", gtNavInfo.bear_to_waypoint);
+			printf("Distance to Target: %.1f meters\n", gtNavInfo.dist_to_waypoint);
+			printf("Heading: %i\n", (U16)gtNavInfo.current_heading);
+			printf("\n*** GPS Status ***\n");
+			printf("GPS Locked: %s\n", (gtGpsInfo.bGpsLocked) ? "YES" : "NO");
+			printf("GPS Lat: %f    Long: %f\n", gtGpsInfo.flat, gtGpsInfo.flon);
+			printf("\n\n");
+
+			// Only update the LCD when state changes
+			if( last_nav_state != geNavState )
+			{
 #if USE_PI_PLATE
-			PrintProgramState_on_LCD( geNavState );
+				PrintProgramState_on_LCD( geNavState );
+				delay(2000);
 #endif
-			last_nav_state = geNavState;
+				last_nav_state = geNavState;
+			}
+
+#if USE_PI_PLATE
+			// Show distance to target
+			LCD_cursor_goto(0, 0);
+			LCD_printf("Dist: %3.1fm  ", gtNavInfo.dist_to_waypoint);
+			// Show heading
+			LCD_cursor_goto(1, 0);
+			LCD_printf("Head: %3.1f", gtNavInfo.current_heading);
+#endif
 		}
-
-		printf("Navigation Info:\n");
-		printf("Bearing to Target: %i\n", gtNavInfo.bear_to_waypoint);
-		printf("Distance to Target: %.1f meters\n", gtNavInfo.dist_to_waypoint);
-		printf("Heading: %i\n", (U16)gtNavInfo.current_heading);
-#if USE_PI_PLATE
-		// Show heading on LCD
-		LCD_cursor_goto(1, 0);
-		LCD_printf("Heading: %i", gtNavInfo.current_heading);
-#endif
-		printf("\n");
-		printf("GPS Locked: %s\n", (gtGpsInfo.bGpsLocked) ? "YES" : "NO");
-		printf("GPS Lat: %f    Long: %f\n", gtGpsInfo.flat, gtGpsInfo.flon);
-
-	    delay( 200 );
 	}
 
 	return 0;
